@@ -13,7 +13,7 @@ npm run db:seed
 npm run dev
 ```
 
-打开 `http://localhost:3000`，使用 `.env` 里的 `APP_PASSWORD` 登录。
+打开 `http://localhost:3000`，无需登录密码。
 
 ## 服务器部署
 
@@ -21,7 +21,7 @@ npm run dev
 git clone https://github.com/你的用户名/leetcode-review-planner.git
 cd leetcode-review-planner
 cp .env.example .env
-# 修改 .env 中的 APP_PASSWORD 和 SESSION_SECRET
+# 修改 .env 中的 SESSION_SECRET
 docker compose up -d --build
 ```
 
