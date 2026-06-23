@@ -67,6 +67,17 @@ const statements = [
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS "AvailabilitySlot" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "date" DATETIME NOT NULL,
+    "weekday" INTEGER NOT NULL,
+    "startTime" TEXT NOT NULL,
+    "endTime" TEXT NOT NULL,
+    "isAvailable" BOOLEAN NOT NULL DEFAULT true,
+    "availableMinutes" INTEGER NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS "DailyPlan" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "date" DATETIME NOT NULL,
@@ -112,11 +123,31 @@ const statements = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "ReviewSchedule_problemId_key" ON "ReviewSchedule"("problemId")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "Availability_date_key" ON "Availability"("date")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "DailyPlan_date_key" ON "DailyPlan"("date")`,
+  `CREATE INDEX IF NOT EXISTS "AvailabilitySlot_date_idx" ON "AvailabilitySlot"("date")`,
+];
+
+const optionalColumns = [
+  `ALTER TABLE "ProblemProgress" ADD COLUMN "lastSubmittedAt" DATETIME`,
+  `ALTER TABLE "ProblemProgress" ADD COLUMN "totalSubmissions" INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE "ProblemProgress" ADD COLUMN "acceptedSubmissions" INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE "ProblemProgress" ADD COLUMN "acceptedRate" INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE "ProblemProgress" ADD COLUMN "reviewRiskScore" INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE "PlanItem" ADD COLUMN "availabilitySlotId" TEXT`,
 ];
 
 async function main() {
   for (const statement of statements) {
     await prisma.$executeRawUnsafe(statement);
+  }
+
+  for (const statement of optionalColumns) {
+    await prisma.$executeRawUnsafe(statement).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (!message.includes("duplicate column name")) {
+        throw error;
+      }
+    });
   }
 }
 

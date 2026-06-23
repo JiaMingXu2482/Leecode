@@ -13,18 +13,62 @@ type QuestionData = {
 
 type SubmissionListData = {
   submissionList: {
-    submissions: {
-      statusDisplay: string;
-      timestamp: string;
-    }[];
+    submissions: SubmissionMetricInput[];
   };
+};
+
+export type SubmissionMetricInput = {
+  statusDisplay: string;
+  timestamp: string;
+};
+
+export type SubmissionMetrics = {
+  totalSubmissions: number;
+  acceptedSubmissions: number;
+  acceptedRate: number;
+  lastSubmittedAt: Date | null;
+  lastAcceptedAt: Date | null;
 };
 
 export type SyncedProblemStatus = {
   problemId: string;
   accepted: boolean;
-  lastAcceptedAt: Date | null;
-};
+} & SubmissionMetrics;
+
+const ACCEPTED_CN = "\u901a\u8fc7";
+
+function isAcceptedSubmission(statusDisplay: string) {
+  return statusDisplay === "Accepted" || statusDisplay === ACCEPTED_CN;
+}
+
+function timestampToDate(timestamp: string) {
+  return new Date(Number(timestamp) * 1000);
+}
+
+export function calculateSubmissionMetrics(
+  submissions: SubmissionMetricInput[],
+): SubmissionMetrics {
+  if (!submissions.length) {
+    return {
+      totalSubmissions: 0,
+      acceptedSubmissions: 0,
+      acceptedRate: 0,
+      lastSubmittedAt: null,
+      lastAcceptedAt: null,
+    };
+  }
+
+  const sorted = [...submissions].sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
+  const accepted = sorted.filter((submission) => isAcceptedSubmission(submission.statusDisplay));
+
+  return {
+    totalSubmissions: sorted.length,
+    acceptedSubmissions: accepted.length,
+    acceptedRate: Math.round((accepted.length / sorted.length) * 100),
+    lastSubmittedAt: timestampToDate(sorted[0].timestamp),
+    lastAcceptedAt: accepted[0] ? timestampToDate(accepted[0].timestamp) : null,
+  };
+}
 
 async function graphql<T>({
   cookie,
@@ -79,7 +123,7 @@ async function fetchQuestionStatus(cookie: string, slug: string) {
   return data.question?.status === "ac";
 }
 
-async function fetchLastAcceptedAt(cookie: string, slug: string) {
+async function fetchSubmissionMetrics(cookie: string, slug: string) {
   const data = await graphql<SubmissionListData>({
     cookie,
     query: `
@@ -92,14 +136,10 @@ async function fetchLastAcceptedAt(cookie: string, slug: string) {
         }
       }
     `,
-    variables: { offset: 0, limit: 20, questionSlug: slug },
+    variables: { offset: 0, limit: 50, questionSlug: slug },
   });
 
-  const accepted = data.submissionList.submissions.find(
-    (submission) => submission.statusDisplay === "Accepted" || submission.statusDisplay === "通过",
-  );
-
-  return accepted ? new Date(Number(accepted.timestamp) * 1000) : null;
+  return calculateSubmissionMetrics(data.submissionList.submissions);
 }
 
 export async function syncLeetCodeCnProblems({
@@ -113,12 +153,12 @@ export async function syncLeetCodeCnProblems({
 
   for (const problem of problems) {
     const accepted = await fetchQuestionStatus(cookie, problem.slug);
-    const lastAcceptedAt = accepted ? await fetchLastAcceptedAt(cookie, problem.slug) : null;
+    const metrics = await fetchSubmissionMetrics(cookie, problem.slug);
 
     results.push({
       problemId: problem.id,
       accepted,
-      lastAcceptedAt,
+      ...metrics,
     });
   }
 

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { addUtcDays, nextNDays, startOfUtcDay, toDateKey } from "@/lib/dates";
+import { addUtcDays, minutesBetween, nextNDays, startOfUtcDay, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { isAuthorizedServer } from "@/lib/auth";
 
@@ -11,7 +11,7 @@ export async function getDashboardData() {
   const db = getDb();
   const today = startOfUtcDay(new Date());
   const upcomingDates = nextNDays(7, today);
-  const [todayPlan, availabilityRows, problems, syncState, total, accepted, dueReviews, sessions] =
+  const [todayPlan, availabilityRows, availabilitySlots, problems, syncState, total, accepted, dueReviews, sessions] =
     await Promise.all([
       db.dailyPlan.findUnique({
         where: { date: today },
@@ -20,6 +20,7 @@ export async function getDashboardData() {
             orderBy: { sortOrder: "asc" },
             include: {
               problem: { include: { progress: true, reviewSchedule: true } },
+              availabilitySlot: true,
             },
           },
         },
@@ -32,6 +33,15 @@ export async function getDashboardData() {
           },
         },
         orderBy: { date: "asc" },
+      }),
+      db.availabilitySlot.findMany({
+        where: {
+          date: {
+            gte: today,
+            lt: addUtcDays(today, 7),
+          },
+        },
+        orderBy: [{ date: "asc" }, { startTime: "asc" }],
       }),
       db.problem.findMany({
         orderBy: { hot100Order: "asc" },
@@ -57,6 +67,25 @@ export async function getDashboardData() {
       availableMinutes: row?.availableMinutes ?? 150,
     };
   });
+  const slots = availabilitySlots.length
+    ? availabilitySlots.map((slot) => ({
+        id: slot.id,
+        date: toDateKey(slot.date),
+        weekday: slot.weekday,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        isAvailable: slot.isAvailable,
+        availableMinutes: slot.availableMinutes,
+      }))
+    : upcomingDates.map((date) => ({
+        id: `${toDateKey(date)}-09:00-11:30`,
+        date: toDateKey(date),
+        weekday: weekdayIndex(date),
+        startTime: "09:00",
+        endTime: "11:30",
+        isAvailable: true,
+        availableMinutes: minutesBetween("09:00", "11:30"),
+      }));
 
   const tagMap = new Map<string, { tag: string; total: number; accepted: number }>();
 
@@ -81,6 +110,15 @@ export async function getDashboardData() {
             kind: item.kind,
             estimatedMinutes: item.estimatedMinutes,
             isCompleted: item.isCompleted,
+            slot: item.availabilitySlot
+              ? {
+                  id: item.availabilitySlot.id,
+                  date: toDateKey(item.availabilitySlot.date),
+                  weekday: item.availabilitySlot.weekday,
+                  startTime: item.availabilitySlot.startTime,
+                  endTime: item.availabilitySlot.endTime,
+                }
+              : null,
             problem: {
               id: item.problem.id,
               frontendId: item.problem.frontendId,
@@ -90,11 +128,16 @@ export async function getDashboardData() {
               tags: item.problem.tags,
               leetcodeCnUrl: item.problem.leetcodeCnUrl,
               noteLastBlocker: item.problem.progress?.noteLastBlocker ?? "",
+              totalSubmissions: item.problem.progress?.totalSubmissions ?? 0,
+              acceptedSubmissions: item.problem.progress?.acceptedSubmissions ?? 0,
+              acceptedRate: item.problem.progress?.acceptedRate ?? 0,
+              reviewRiskScore: item.problem.progress?.reviewRiskScore ?? 0,
             },
           })),
         }
       : null,
     availability,
+    slots,
     problems: problems.map((problem) => ({
       id: problem.id,
       frontendId: problem.frontendId,
@@ -108,6 +151,12 @@ export async function getDashboardData() {
       nextReviewDate: problem.reviewSchedule?.nextReviewDate
         ? toDateKey(problem.reviewSchedule.nextReviewDate)
         : null,
+      lastAcceptedAt: problem.progress?.lastAcceptedAt?.toISOString() ?? null,
+      lastSubmittedAt: problem.progress?.lastSubmittedAt?.toISOString() ?? null,
+      totalSubmissions: problem.progress?.totalSubmissions ?? 0,
+      acceptedSubmissions: problem.progress?.acceptedSubmissions ?? 0,
+      acceptedRate: problem.progress?.acceptedRate ?? 0,
+      reviewRiskScore: problem.progress?.reviewRiskScore ?? 0,
       leetcodeCnUrl: problem.leetcodeCnUrl,
     })),
     syncState: {

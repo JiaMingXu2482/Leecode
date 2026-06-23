@@ -7,6 +7,7 @@ import {
   createInitialReviewSchedules,
   type AcceptedProblemForScheduling,
 } from "@/lib/review-scheduler";
+import { calculateReviewRiskScore } from "@/lib/risk";
 
 export async function POST(request: NextRequest) {
   if (!isAuthorizedRequest(request)) {
@@ -39,16 +40,41 @@ export async function POST(request: NextRequest) {
     const statuses = await syncLeetCodeCnProblems({ cookie, problems });
 
     for (const status of statuses) {
+      const problem = problems.find((item) => item.id === status.problemId);
       await db.problemProgress.upsert({
         where: { problemId: status.problemId },
         update: {
           isAccepted: status.accepted,
           lastAcceptedAt: status.lastAcceptedAt,
+          lastSubmittedAt: status.lastSubmittedAt,
+          totalSubmissions: status.totalSubmissions,
+          acceptedSubmissions: status.acceptedSubmissions,
+          acceptedRate: status.acceptedRate,
+          reviewRiskScore: problem
+            ? calculateReviewRiskScore({
+                acceptedRate: status.acceptedRate,
+                totalSubmissions: status.totalSubmissions,
+                lastAcceptedAt: status.lastAcceptedAt,
+                difficulty: problem.difficulty,
+              })
+            : 0,
         },
         create: {
           problemId: status.problemId,
           isAccepted: status.accepted,
           lastAcceptedAt: status.lastAcceptedAt,
+          lastSubmittedAt: status.lastSubmittedAt,
+          totalSubmissions: status.totalSubmissions,
+          acceptedSubmissions: status.acceptedSubmissions,
+          acceptedRate: status.acceptedRate,
+          reviewRiskScore: problem
+            ? calculateReviewRiskScore({
+                acceptedRate: status.acceptedRate,
+                totalSubmissions: status.totalSubmissions,
+                lastAcceptedAt: status.lastAcceptedAt,
+                difficulty: problem.difficulty,
+              })
+            : 0,
         },
       });
     }

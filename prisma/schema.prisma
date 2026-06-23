@@ -55,19 +55,24 @@ model Problem {
 }
 
 model ProblemProgress {
-  id              String        @id @default(cuid())
-  problemId       String        @unique
-  problem         Problem       @relation(fields: [problemId], references: [id], onDelete: Cascade)
-  isAccepted      Boolean       @default(false)
-  lastAcceptedAt  DateTime?
-  mastery         RecallRating?
-  noteIdea        String        @default("")
-  notePitfall     String        @default("")
-  noteComplexity  String        @default("")
-  noteCodeLink    String        @default("")
-  noteLastBlocker String        @default("")
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id                  String        @id @default(cuid())
+  problemId           String        @unique
+  problem             Problem       @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  isAccepted          Boolean       @default(false)
+  lastAcceptedAt      DateTime?
+  lastSubmittedAt     DateTime?
+  totalSubmissions    Int           @default(0)
+  acceptedSubmissions Int           @default(0)
+  acceptedRate        Int           @default(0)
+  reviewRiskScore     Int           @default(0)
+  mastery             RecallRating?
+  noteIdea            String        @default("")
+  notePitfall         String        @default("")
+  noteComplexity      String        @default("")
+  noteCodeLink        String        @default("")
+  noteLastBlocker     String        @default("")
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 }
 
 model ReviewSchedule {
@@ -106,6 +111,21 @@ model Availability {
   updatedAt        DateTime @updatedAt
 }
 
+model AvailabilitySlot {
+  id               String     @id @default(cuid())
+  date             DateTime
+  weekday          Int
+  startTime        String
+  endTime          String
+  isAvailable      Boolean    @default(true)
+  availableMinutes Int
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  planItems        PlanItem[]
+
+  @@index([date])
+}
+
 model DailyPlan {
   id                    String     @id @default(cuid())
   date                  DateTime   @unique
@@ -117,16 +137,18 @@ model DailyPlan {
 }
 
 model PlanItem {
-  id               String       @id @default(cuid())
-  dailyPlanId      String
-  dailyPlan        DailyPlan    @relation(fields: [dailyPlanId], references: [id], onDelete: Cascade)
-  problemId        String
-  problem          Problem      @relation(fields: [problemId], references: [id], onDelete: Cascade)
-  kind             PlanItemKind
-  estimatedMinutes Int
-  sortOrder        Int
-  isCompleted      Boolean      @default(false)
-  createdAt        DateTime     @default(now())
+  id                 String            @id @default(cuid())
+  dailyPlanId        String
+  dailyPlan          DailyPlan         @relation(fields: [dailyPlanId], references: [id], onDelete: Cascade)
+  availabilitySlotId String?
+  availabilitySlot   AvailabilitySlot? @relation(fields: [availabilitySlotId], references: [id], onDelete: SetNull)
+  problemId          String
+  problem            Problem           @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  kind               PlanItemKind
+  estimatedMinutes   Int
+  sortOrder          Int
+  isCompleted        Boolean           @default(false)
+  createdAt          DateTime          @default(now())
 }
 
 model LeetCodeSyncState {

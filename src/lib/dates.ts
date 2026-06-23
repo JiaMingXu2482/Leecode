@@ -21,3 +21,13 @@ export function nextNDays(count: number, start = new Date()) {
 
   return Array.from({ length: count }, (_, index) => addUtcDays(first, index));
 }
+
+export function weekdayIndex(date: Date) {
+  return date.getUTCDay();
+}
+
+export function minutesBetween(startTime: string, endTime: string) {
+  const [startHour, startMinute] = startTime.split(":").map(Number);
+  const [endHour, endMinute] = endTime.split(":").map(Number);
+  return Math.max(0, endHour * 60 + endMinute - (startHour * 60 + startMinute));
+}
