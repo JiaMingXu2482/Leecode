@@ -1,0 +1,16 @@
+services:
+  leetcode-review-planner:
+    build: .
+    container_name: leetcode-review-planner
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "file:/data/app.db"
+    volumes:
+      - leetcode-review-data:/data
+
+volumes:
+  leetcode-review-data:

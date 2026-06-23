@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Hot100 复习计划
 
-## Getting Started
+一个自部署的 LeetCode Hot100 复习网站。它会同步 `leetcode.cn` 的 Hot100 AC 状态，并按遗忘曲线安排旧题重测、到期复习和新题推进。
 
-First, run the development server:
+## 本地运行
 
 ```bash
+npm install
+cp .env.example .env
+npm run db:generate
+npm run db:init
+npm run db:seed
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+打开 `http://localhost:3000`，使用 `.env` 里的 `APP_PASSWORD` 登录。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 服务器部署
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+git clone https://github.com/你的用户名/leetcode-review-planner.git
+cd leetcode-review-planner
+cp .env.example .env
+# 修改 .env 中的 APP_PASSWORD 和 SESSION_SECRET
+docker compose up -d --build
+```
 
-## Learn More
+SQLite 数据库保存在 Docker volume `leetcode-review-data` 中，不会提交到 GitHub。
 
-To learn more about Next.js, take a look at the following resources:
+## 更新部署
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+git pull
+docker compose up -d --build
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 力扣同步
 
-## Deploy on Vercel
+1. 在浏览器登录 `leetcode.cn`。
+2. 从浏览器开发者工具复制当前登录 Cookie。
+3. 在网站的「力扣同步」区域粘贴 Cookie 并点击同步。
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+网站不会保存力扣账号密码，只保存你手动提供的 Cookie。Cookie 过期后重新粘贴即可。
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 常用命令
+
+```bash
+npm test
+npm run lint
+npm run build
+npm run db:init
+npm run db:seed
+```

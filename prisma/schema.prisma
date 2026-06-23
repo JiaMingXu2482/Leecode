@@ -1,0 +1,151 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum RecallRating {
+  FORGOT
+  SHAKY
+  OK
+  MASTERED
+}
+
+enum PlanItemKind {
+  REVIEW
+  RETEST
+  NEW
+}
+
+enum SyncStatus {
+  IDLE
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+model Problem {
+  id                     String           @id @default(cuid())
+  frontendId             Int              @unique
+  title                  String
+  titleCn                String
+  slug                   String           @unique
+  leetcodeCnUrl          String
+  difficulty             Difficulty
+  tags                   String
+  hot100Order            Int
+  estimatedNewMinutes    Int
+  estimatedReviewMinutes Int
+  isEnabled              Boolean          @default(true)
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  progress               ProblemProgress?
+  reviewSchedule         ReviewSchedule?
+  sessions               StudySession[]
+  planItems              PlanItem[]
+}
+
+model ProblemProgress {
+  id              String        @id @default(cuid())
+  problemId       String        @unique
+  problem         Problem       @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  isAccepted      Boolean       @default(false)
+  lastAcceptedAt  DateTime?
+  mastery         RecallRating?
+  noteIdea        String        @default("")
+  notePitfall     String        @default("")
+  noteComplexity  String        @default("")
+  noteCodeLink    String        @default("")
+  noteLastBlocker String        @default("")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model ReviewSchedule {
+  id                String   @id @default(cuid())
+  problemId         String   @unique
+  problem           Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  nextReviewDate    DateTime
+  stage             Int      @default(0)
+  consecutiveStrong Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model StudySession {
+  id              String       @id @default(cuid())
+  problemId       String
+  problem         Problem      @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  kind            PlanItemKind
+  rating          RecallRating
+  spentMinutes    Int
+  noteIdea        String       @default("")
+  notePitfall     String       @default("")
+  noteComplexity  String       @default("")
+  noteCodeLink    String       @default("")
+  noteLastBlocker String       @default("")
+  completedAt     DateTime     @default(now())
+  createdAt       DateTime     @default(now())
+}
+
+model Availability {
+  id               String   @id @default(cuid())
+  date             DateTime @unique
+  isAvailable      Boolean  @default(true)
+  availableMinutes Int
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model DailyPlan {
+  id                    String     @id @default(cuid())
+  date                  DateTime   @unique
+  availableMinutes      Int
+  totalEstimatedMinutes Int        @default(0)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  items                 PlanItem[]
+}
+
+model PlanItem {
+  id               String       @id @default(cuid())
+  dailyPlanId      String
+  dailyPlan        DailyPlan    @relation(fields: [dailyPlanId], references: [id], onDelete: Cascade)
+  problemId        String
+  problem          Problem      @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  kind             PlanItemKind
+  estimatedMinutes Int
+  sortOrder        Int
+  isCompleted      Boolean      @default(false)
+  createdAt        DateTime     @default(now())
+}
+
+model LeetCodeSyncState {
+  id            String     @id @default("leetcode-cn")
+  status        SyncStatus @default(IDLE)
+  cookie        String     @default("")
+  lastSyncedAt  DateTime?
+  lastError     String     @default("")
+  acceptedCount Int        @default(0)
+  checkedCount  Int        @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+model AppSettings {
+  id                  String    @id @default("default")
+  appPasswordHash     String    @default("")
+  defaultDailyMinutes Int       @default(150)
+  targetDate          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}

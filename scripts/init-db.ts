@@ -1,0 +1,131 @@
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
+const statements = [
+  `CREATE TABLE IF NOT EXISTS "Problem" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "frontendId" INTEGER NOT NULL,
+    "title" TEXT NOT NULL,
+    "titleCn" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "leetcodeCnUrl" TEXT NOT NULL,
+    "difficulty" TEXT NOT NULL,
+    "tags" TEXT NOT NULL,
+    "hot100Order" INTEGER NOT NULL,
+    "estimatedNewMinutes" INTEGER NOT NULL,
+    "estimatedReviewMinutes" INTEGER NOT NULL,
+    "isEnabled" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS "ProblemProgress" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "problemId" TEXT NOT NULL,
+    "isAccepted" BOOLEAN NOT NULL DEFAULT false,
+    "lastAcceptedAt" DATETIME,
+    "mastery" TEXT,
+    "noteIdea" TEXT NOT NULL DEFAULT '',
+    "notePitfall" TEXT NOT NULL DEFAULT '',
+    "noteComplexity" TEXT NOT NULL DEFAULT '',
+    "noteCodeLink" TEXT NOT NULL DEFAULT '',
+    "noteLastBlocker" TEXT NOT NULL DEFAULT '',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "ProblemProgress_problemId_fkey" FOREIGN KEY ("problemId") REFERENCES "Problem" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "ReviewSchedule" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "problemId" TEXT NOT NULL,
+    "nextReviewDate" DATETIME NOT NULL,
+    "stage" INTEGER NOT NULL DEFAULT 0,
+    "consecutiveStrong" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "ReviewSchedule_problemId_fkey" FOREIGN KEY ("problemId") REFERENCES "Problem" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "StudySession" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "problemId" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "rating" TEXT NOT NULL,
+    "spentMinutes" INTEGER NOT NULL,
+    "noteIdea" TEXT NOT NULL DEFAULT '',
+    "notePitfall" TEXT NOT NULL DEFAULT '',
+    "noteComplexity" TEXT NOT NULL DEFAULT '',
+    "noteCodeLink" TEXT NOT NULL DEFAULT '',
+    "noteLastBlocker" TEXT NOT NULL DEFAULT '',
+    "completedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "StudySession_problemId_fkey" FOREIGN KEY ("problemId") REFERENCES "Problem" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "Availability" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "date" DATETIME NOT NULL,
+    "isAvailable" BOOLEAN NOT NULL DEFAULT true,
+    "availableMinutes" INTEGER NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS "DailyPlan" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "date" DATETIME NOT NULL,
+    "availableMinutes" INTEGER NOT NULL,
+    "totalEstimatedMinutes" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS "PlanItem" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "dailyPlanId" TEXT NOT NULL,
+    "problemId" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "estimatedMinutes" INTEGER NOT NULL,
+    "sortOrder" INTEGER NOT NULL,
+    "isCompleted" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "PlanItem_dailyPlanId_fkey" FOREIGN KEY ("dailyPlanId") REFERENCES "DailyPlan" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "PlanItem_problemId_fkey" FOREIGN KEY ("problemId") REFERENCES "Problem" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "LeetCodeSyncState" (
+    "id" TEXT NOT NULL PRIMARY KEY DEFAULT 'leetcode-cn',
+    "status" TEXT NOT NULL DEFAULT 'IDLE',
+    "cookie" TEXT NOT NULL DEFAULT '',
+    "lastSyncedAt" DATETIME,
+    "lastError" TEXT NOT NULL DEFAULT '',
+    "acceptedCount" INTEGER NOT NULL DEFAULT 0,
+    "checkedCount" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS "AppSettings" (
+    "id" TEXT NOT NULL PRIMARY KEY DEFAULT 'default',
+    "appPasswordHash" TEXT NOT NULL DEFAULT '',
+    "defaultDailyMinutes" INTEGER NOT NULL DEFAULT 150,
+    "targetDate" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "Problem_frontendId_key" ON "Problem"("frontendId")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "Problem_slug_key" ON "Problem"("slug")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "ProblemProgress_problemId_key" ON "ProblemProgress"("problemId")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "ReviewSchedule_problemId_key" ON "ReviewSchedule"("problemId")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "Availability_date_key" ON "Availability"("date")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "DailyPlan_date_key" ON "DailyPlan"("date")`,
+];
+
+async function main() {
+  for (const statement of statements) {
+    await prisma.$executeRawUnsafe(statement);
+  }
+}
+
+main()
+  .then(async () => {
+    await prisma.$disconnect();
+  })
+  .catch(async (error) => {
+    console.error(error);
+    await prisma.$disconnect();
+    process.exit(1);
+  });
