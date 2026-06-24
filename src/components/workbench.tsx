@@ -98,8 +98,32 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
     if (ok) window.location.reload();
   }
 
-  async function markItem(id: string, feelingScore: number, reviewAfterDays?: number, noteMarkdown?: string) {
-    const ok = await requestJson(`/api/plan-items/${id}`, { feelingScore, reviewAfterDays, noteMarkdown }, "PATCH");
+  async function markItem(
+    id: string,
+    feelingScore: number,
+    reviewAfterDays?: number,
+    noteMarkdown?: string,
+    noteSyntax?: string,
+  ) {
+    const ok = await requestJson(
+      `/api/plan-items/${id}`,
+      { feelingScore, reviewAfterDays, noteMarkdown, noteSyntax },
+      "PATCH",
+    );
+    if (ok) window.location.reload();
+  }
+
+  async function excludeProblem(problemId: string, planItemId?: string) {
+    const ok = await requestJson(`/api/problems/${problemId}`, { isEnabled: false }, "PUT");
+    if (!ok) return;
+    if (planItemId) {
+      await requestJson(`/api/plan-items/${planItemId}`, undefined, "DELETE");
+    }
+    window.location.reload();
+  }
+
+  async function setProblemEnabled(problemId: string, isEnabled: boolean) {
+    const ok = await requestJson(`/api/problems/${problemId}`, { isEnabled }, "PUT");
     if (ok) window.location.reload();
   }
 
@@ -193,14 +217,15 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               onAdd={addTodayTask}
               onMark={markItem}
               onRemove={removeItem}
+              onExclude={excludeProblem}
               completion={completion}
             />
           ) : null}
           {active === "weekly" ? (
             <WeeklyView slots={slots} setSlot={updateSlot} addSlot={addSlot} removeSlot={removeSlot} generatePlan={generatePlan} />
           ) : null}
-          {active === "problems" ? <ProblemsView data={data} /> : null}
-          {active === "reviews" ? <ReviewsView data={data} /> : null}
+          {active === "problems" ? <ProblemsView data={data} onToggleEnabled={setProblemEnabled} /> : null}
+          {active === "reviews" ? <ReviewsView data={data} onToggleEnabled={setProblemEnabled} /> : null}
           {active === "stats" ? <StatsView data={data} completion={completion} /> : null}
           {active === "sync" ? (
             <SyncView data={data} cookie={cookie} setCookie={setCookie} syncLeetCode={syncLeetCode} busy={busy} />
@@ -216,12 +241,20 @@ function TodayView({
   onAdd,
   onMark,
   onRemove,
+  onExclude,
   completion,
 }: {
   data: DashboardData;
   onAdd: () => void;
-  onMark: (id: string, feelingScore: number, reviewAfterDays?: number, noteMarkdown?: string) => void;
+  onMark: (
+    id: string,
+    feelingScore: number,
+    reviewAfterDays?: number,
+    noteMarkdown?: string,
+    noteSyntax?: string,
+  ) => void;
   onRemove: (id: string) => void;
+  onExclude: (problemId: string, planItemId?: string) => void;
   completion: number;
 }) {
   const grouped = useMemo(() => groupItemsBySlot(data.todayPlan?.items ?? []), [data.todayPlan]);
@@ -250,7 +283,7 @@ function TodayView({
                   </div>
                   <div className="divide-y divide-slate-100">
                     {group.items.map((item) => (
-                      <TaskRow key={item.id} item={item} onMark={onMark} onRemove={onRemove} />
+                      <TaskRow key={item.id} item={item} onMark={onMark} onRemove={onRemove} onExclude={onExclude} />
                     ))}
                   </div>
                 </div>
@@ -358,22 +391,34 @@ function WeeklyView({
   );
 }
 
-function ProblemsView({ data }: { data: DashboardData }) {
+function ProblemsView({
+  data,
+  onToggleEnabled,
+}: {
+  data: DashboardData;
+  onToggleEnabled: (problemId: string, isEnabled: boolean) => void;
+}) {
   return (
     <Panel title="题库画像" action={`${data.problems.length} 题`}>
-      <ProblemTable problems={data.problems} />
+      <ProblemTable problems={data.problems} onToggleEnabled={onToggleEnabled} />
     </Panel>
   );
 }
 
-function ReviewsView({ data }: { data: DashboardData }) {
+function ReviewsView({
+  data,
+  onToggleEnabled,
+}: {
+  data: DashboardData;
+  onToggleEnabled: (problemId: string, isEnabled: boolean) => void;
+}) {
   const reviews = [...data.problems]
-    .filter((problem) => problem.nextReviewDate || problem.reviewRiskScore >= 50)
+    .filter((problem) => problem.isEnabled !== false && (problem.nextReviewDate || problem.reviewRiskScore >= 50))
     .sort((a, b) => b.reviewRiskScore - a.reviewRiskScore);
 
   return (
     <Panel title="到期与高风险旧题" action={`${reviews.length} 题`}>
-      <ProblemTable problems={reviews} />
+      <ProblemTable problems={reviews} onToggleEnabled={onToggleEnabled} />
     </Panel>
   );
 }
@@ -464,15 +509,24 @@ function TaskRow({
   item,
   onMark,
   onRemove,
+  onExclude,
 }: {
   item: NonNullable<DashboardData["todayPlan"]>["items"][number];
-  onMark: (id: string, feelingScore: number, reviewAfterDays?: number, noteMarkdown?: string) => void;
+  onMark: (
+    id: string,
+    feelingScore: number,
+    reviewAfterDays?: number,
+    noteMarkdown?: string,
+    noteSyntax?: string,
+  ) => void;
   onRemove: (id: string) => void;
+  onExclude: (problemId: string, planItemId?: string) => void;
 }) {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feelingScore, setFeelingScore] = useState<number | null>(null);
-  const [reviewAfterDays, setReviewAfterDays] = useState(7);
-  const [noteMarkdown, setNoteMarkdown] = useState("");
+  const [feelingScore, setFeelingScore] = useState<number | null>(item.session?.feelingScore ?? null);
+  const [reviewAfterDays, setReviewAfterDays] = useState(item.session?.reviewAfterDays ?? 7);
+  const [noteMarkdown, setNoteMarkdown] = useState(item.session?.noteMarkdown ?? "");
+  const [noteSyntax, setNoteSyntax] = useState(item.session?.noteSyntax ?? "");
 
   function chooseScore(score: number) {
     setFeelingScore(score);
@@ -484,7 +538,7 @@ function TaskRow({
       return;
     }
 
-    onMark(item.id, feelingScore, reviewAfterDays, noteMarkdown);
+    onMark(item.id, feelingScore, reviewAfterDays, noteMarkdown, noteSyntax);
   }
 
   return (
@@ -516,9 +570,19 @@ function TaskRow({
             打开力扣
           </a>
           {item.isCompleted ? (
-            <span className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md bg-emerald-50 px-3 text-sm font-medium text-emerald-700">
-              <Check size={14} /> 已处理
-            </span>
+            <>
+              <span className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md bg-emerald-50 px-3 text-sm font-medium text-emerald-700">
+                <Check size={14} /> 已处理
+              </span>
+              <button
+                onClick={() => setFeedbackOpen((open) => !open)}
+                className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                title="修改做题感觉或笔记"
+              >
+                <FileText size={14} />
+                {feedbackOpen ? "收起" : "编辑反馈"}
+              </button>
+            </>
           ) : (
             <>
               <button
@@ -539,11 +603,11 @@ function TaskRow({
           )}
         </div>
       </div>
-      {feedbackOpen && !item.isCompleted ? (
+      {feedbackOpen ? (
         <div className="border-t border-slate-100 bg-slate-50 px-3 py-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-medium text-slate-900">做题感觉</div>
+              <div className="text-sm font-medium text-slate-900">做题感觉{item.isCompleted ? "（编辑）" : ""}</div>
               <div className="mt-1 text-xs text-slate-500">0 表示一次 AC，5 表示完全没思路。</div>
             </div>
             <button
@@ -572,34 +636,57 @@ function TaskRow({
               </button>
             ))}
           </div>
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              几天后复习
-              <input
-                type="number"
-                min={1}
-                max={60}
-                value={reviewAfterDays}
-                onChange={(event) => setReviewAfterDays(Math.max(1, Number(event.target.value) || 1))}
-                className="h-9 w-20 rounded-md border border-slate-300 px-2 text-sm"
-              />
-            </label>
-            <label className="w-full text-sm text-slate-600">
-              做题笔记
+          <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
+            几天后复习
+            <input
+              type="number"
+              min={1}
+              max={60}
+              value={reviewAfterDays}
+              onChange={(event) => setReviewAfterDays(Math.max(1, Number(event.target.value) || 1))}
+              className="h-9 w-20 rounded-md border border-slate-300 px-2 text-sm"
+            />
+          </label>
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <label className="text-sm text-slate-600">
+              <span className="inline-flex items-center gap-1 font-medium text-slate-900">
+                <BookOpen size={14} /> 解题思路笔记
+              </span>
               <textarea
                 value={noteMarkdown}
                 onChange={(event) => setNoteMarkdown(event.target.value)}
-                placeholder="可写 Markdown：思路、卡点、错因、下次复习要注意的点"
-                className="mt-2 min-h-28 w-full resize-y rounded-md border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                placeholder="这道题的思路、卡点、错因、下次复习要注意的点（支持 Markdown）"
+                className="mt-2 min-h-32 w-full resize-y rounded-md border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </label>
+            <label className="text-sm text-slate-600">
+              <span className="inline-flex items-center gap-1 font-medium text-slate-900">
+                <Code2 size={14} /> C++ 语法 / 知识点
+              </span>
+              <textarea
+                value={noteSyntax}
+                onChange={(event) => setNoteSyntax(event.target.value)}
+                placeholder="C++ 语法、STL 成员函数用法、容器/迭代器等基础知识点，方便后续整理复习"
+                className="mt-2 min-h-32 w-full resize-y rounded-md border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <button
+              onClick={() => onExclude(item.problem.id, item.id)}
+              className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+              title="标记为不会考的题，之后不再安排复习（历史笔记保留）"
+            >
+              <Trash2 size={14} />
+              这题不会考，不再复习
+            </button>
             <button
               onClick={submitFeedback}
               disabled={feelingScore === null}
               className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
             >
               <Check size={15} />
-              提交反馈
+              {item.isCompleted ? "更新反馈" : "提交反馈"}
             </button>
           </div>
         </div>
@@ -608,10 +695,16 @@ function TaskRow({
   );
 }
 
-function ProblemTable({ problems }: { problems: DashboardData["problems"] }) {
+function ProblemTable({
+  problems,
+  onToggleEnabled,
+}: {
+  problems: DashboardData["problems"];
+  onToggleEnabled: (problemId: string, isEnabled: boolean) => void;
+}) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[980px] border-separate border-spacing-0 text-sm">
+      <table className="w-full min-w-[1040px] border-separate border-spacing-0 text-sm">
         <thead>
           <tr className="text-left text-xs text-slate-500">
             <th className="border-b border-slate-200 py-2 font-medium">题目</th>
@@ -625,11 +718,15 @@ function ProblemTable({ problems }: { problems: DashboardData["problems"] }) {
             <th className="border-b border-slate-200 py-2 font-medium">复习风险</th>
             <th className="border-b border-slate-200 py-2 font-medium">下次复习</th>
             <th className="border-b border-slate-200 py-2 font-medium">标签</th>
+            <th className="border-b border-slate-200 py-2 font-medium">操作</th>
           </tr>
         </thead>
         <tbody>
-          {problems.map((problem) => (
-            <tr key={problem.id}>
+          {problems.map((problem) => {
+            const disabled = problem.isEnabled === false;
+
+            return (
+            <tr key={problem.id} className={disabled ? "opacity-50" : undefined}>
               <td className="border-b border-slate-100 py-3">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xs text-slate-400">#{problem.frontendId}</span>
@@ -639,6 +736,9 @@ function ProblemTable({ problems }: { problems: DashboardData["problems"] }) {
                   <a href={problem.leetcodeCnUrl} target="_blank" className="text-slate-400 hover:text-blue-600" title="打开力扣">
                     <ExternalLink size={13} />
                   </a>
+                  {disabled ? (
+                    <span className="inline-flex rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">已移除</span>
+                  ) : null}
                 </div>
               </td>
               <td className="border-b border-slate-100 py-3"><Badge className={difficultyClass[problem.difficulty]}>{problem.difficulty}</Badge></td>
@@ -651,8 +751,28 @@ function ProblemTable({ problems }: { problems: DashboardData["problems"] }) {
               <td className="border-b border-slate-100 py-3">{riskPill(problem.reviewRiskScore)}</td>
               <td className="border-b border-slate-100 py-3 text-slate-600">{problem.nextReviewDate ?? "-"}</td>
               <td className="border-b border-slate-100 py-3 text-xs text-slate-500">{problem.tags.split(",").slice(0, 3).join(" / ")}</td>
+              <td className="border-b border-slate-100 py-3">
+                {disabled ? (
+                  <button
+                    onClick={() => onToggleEnabled(problem.id, true)}
+                    className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                    title="恢复复习这道题"
+                  >
+                    <RefreshCw size={13} /> 恢复
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => onToggleEnabled(problem.id, false)}
+                    className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md border border-slate-200 px-2 text-xs font-medium text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                    title="不再复习这道题（历史笔记保留）"
+                  >
+                    <Trash2 size={13} /> 移除
+                  </button>
+                )}
+              </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

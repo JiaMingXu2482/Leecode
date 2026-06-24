@@ -44,7 +44,8 @@ export async function PUT(
     estimatedReviewMinutes?: number;
   };
 
-  const problem = await getDb().problem.update({
+  const db = getDb();
+  const problem = await db.problem.update({
     where: { id },
     data: {
       isEnabled: body.isEnabled,
@@ -53,6 +54,12 @@ export async function PUT(
       estimatedReviewMinutes: body.estimatedReviewMinutes,
     },
   });
+
+  // Excluding a problem ("不再复习此题") also drops its review schedule so it
+  // stops surfacing as a due/retest candidate. Study history is kept.
+  if (body.isEnabled === false) {
+    await db.reviewSchedule.deleteMany({ where: { problemId: id } });
+  }
 
   return NextResponse.json({ problem });
 }

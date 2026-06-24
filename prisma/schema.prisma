@@ -91,8 +91,12 @@ model StudySession {
   id              String       @id @default(cuid())
   problemId       String
   problem         Problem      @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  planItemId      String?      @unique
+  planItem        PlanItem?    @relation(fields: [planItemId], references: [id], onDelete: SetNull)
   kind            PlanItemKind
   rating          RecallRating
+  feelingScore    Int?
+  reviewAfterDays Int?
   spentMinutes    Int
   noteIdea        String       @default("")
   notePitfall     String       @default("")
@@ -100,6 +104,7 @@ model StudySession {
   noteCodeLink    String       @default("")
   noteLastBlocker String       @default("")
   noteMarkdown    String       @default("")
+  noteSyntax      String       @default("")
   completedAt     DateTime     @default(now())
   createdAt       DateTime     @default(now())
 }
@@ -168,6 +173,7 @@ model PlanItem {
   sortOrder          Int
   isCompleted        Boolean           @default(false)
   createdAt          DateTime          @default(now())
+  session            StudySession?
 }
 
 model LeetCodeSyncState {

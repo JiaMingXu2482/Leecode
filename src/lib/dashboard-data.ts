@@ -33,6 +33,7 @@ export async function getDashboardData() {
             include: {
               problem: { include: { progress: true, reviewSchedule: true } },
               availabilitySlot: true,
+              session: true,
             },
           },
         },
@@ -133,6 +134,14 @@ export async function getDashboardData() {
             kind: item.kind,
             estimatedMinutes: item.estimatedMinutes,
             isCompleted: item.isCompleted,
+            session: item.session
+              ? {
+                  feelingScore: item.session.feelingScore,
+                  reviewAfterDays: item.session.reviewAfterDays,
+                  noteMarkdown: item.session.noteMarkdown,
+                  noteSyntax: item.session.noteSyntax,
+                }
+              : null,
             slot: item.availabilitySlot
               ? {
                   id: item.availabilitySlot.id,

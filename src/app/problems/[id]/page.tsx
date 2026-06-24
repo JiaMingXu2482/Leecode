@@ -5,6 +5,8 @@ import { getDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
+const kindLabel: Record<string, string> = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
+
 export default async function ProblemDetailPage({
   params,
 }: {
@@ -71,21 +73,43 @@ export default async function ProblemDetailPage({
         </section>
 
         <section className="mt-5 rounded-lg border border-slate-200 p-5">
-          <h2 className="text-sm font-semibold">做题历史</h2>
+          <h2 className="text-sm font-semibold">做题历史与笔记</h2>
+          <p className="mt-1 text-xs text-slate-500">每次做题的感觉评分、解题思路和 C++ 语法/知识点笔记，按时间倒序直接展示。</p>
           <div className="mt-4 space-y-3">
             {problem.sessions.length ? (
               problem.sessions.map((session) => (
-                <div key={session.id} className="border-b border-slate-100 pb-4 text-sm">
-                  <div className="flex flex-wrap justify-between gap-3">
-                    <span>{session.kind} / {session.rating}</span>
+                <div key={session.id} className="rounded-md border border-slate-200 p-4 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                        {kindLabel[session.kind] ?? session.kind} / {session.rating}
+                      </span>
+                      {typeof session.feelingScore === "number" ? (
+                        <span className="text-xs text-slate-500">做题感觉 {session.feelingScore}/5</span>
+                      ) : null}
+                    </div>
                     <span className="text-slate-500">
                       {session.spentMinutes}m · {session.completedAt.toISOString().slice(0, 10)}
                     </span>
                   </div>
                   {session.noteMarkdown ? (
-                    <div className="mt-3 rounded-md bg-slate-50 p-3 leading-6 whitespace-pre-wrap text-slate-700">
-                      {session.noteMarkdown}
+                    <div className="mt-3">
+                      <div className="text-xs font-medium text-slate-500">解题思路</div>
+                      <div className="mt-1 rounded-md bg-slate-50 p-3 leading-6 whitespace-pre-wrap text-slate-700">
+                        {session.noteMarkdown}
+                      </div>
                     </div>
+                  ) : null}
+                  {session.noteSyntax ? (
+                    <div className="mt-3">
+                      <div className="text-xs font-medium text-slate-500">C++ 语法 / 知识点</div>
+                      <div className="mt-1 rounded-md bg-slate-50 p-3 leading-6 whitespace-pre-wrap text-slate-700">
+                        {session.noteSyntax}
+                      </div>
+                    </div>
+                  ) : null}
+                  {!session.noteMarkdown && !session.noteSyntax ? (
+                    <p className="mt-2 text-xs text-slate-400">这次没有写笔记。</p>
                   ) : null}
                 </div>
               ))

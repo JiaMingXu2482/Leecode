@@ -47,8 +47,11 @@ const statements = [
   `CREATE TABLE IF NOT EXISTS "StudySession" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "problemId" TEXT NOT NULL,
+    "planItemId" TEXT,
     "kind" TEXT NOT NULL,
     "rating" TEXT NOT NULL,
+    "feelingScore" INTEGER,
+    "reviewAfterDays" INTEGER,
     "spentMinutes" INTEGER NOT NULL,
     "noteIdea" TEXT NOT NULL DEFAULT '',
     "notePitfall" TEXT NOT NULL DEFAULT '',
@@ -56,9 +59,11 @@ const statements = [
     "noteCodeLink" TEXT NOT NULL DEFAULT '',
     "noteLastBlocker" TEXT NOT NULL DEFAULT '',
     "noteMarkdown" TEXT NOT NULL DEFAULT '',
+    "noteSyntax" TEXT NOT NULL DEFAULT '',
     "completedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "StudySession_problemId_fkey" FOREIGN KEY ("problemId") REFERENCES "Problem" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    CONSTRAINT "StudySession_problemId_fkey" FOREIGN KEY ("problemId") REFERENCES "Problem" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "StudySession_planItemId_fkey" FOREIGN KEY ("planItemId") REFERENCES "PlanItem" ("id") ON DELETE SET NULL ON UPDATE CASCADE
   )`,
   `CREATE TABLE IF NOT EXISTS "LeetCodeSubmission" (
     "id" TEXT NOT NULL PRIMARY KEY,
@@ -153,6 +158,11 @@ const optionalColumns = [
   `ALTER TABLE "ProblemProgress" ADD COLUMN "reviewRiskScore" INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE "PlanItem" ADD COLUMN "availabilitySlotId" TEXT`,
   `ALTER TABLE "StudySession" ADD COLUMN "noteMarkdown" TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE "StudySession" ADD COLUMN "noteSyntax" TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE "StudySession" ADD COLUMN "feelingScore" INTEGER`,
+  `ALTER TABLE "StudySession" ADD COLUMN "reviewAfterDays" INTEGER`,
+  `ALTER TABLE "StudySession" ADD COLUMN "planItemId" TEXT`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "StudySession_planItemId_key" ON "StudySession"("planItemId")`,
   `ALTER TABLE "LeetCodeSyncState" ADD COLUMN "lastCodeSyncedAt" DATETIME`,
   `ALTER TABLE "LeetCodeSyncState" ADD COLUMN "lastCodeSyncError" TEXT NOT NULL DEFAULT ''`,
 ];

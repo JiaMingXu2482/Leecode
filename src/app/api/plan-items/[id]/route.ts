@@ -35,6 +35,7 @@ export async function PATCH(
     feelingScore?: number;
     reviewAfterDays?: number;
     noteMarkdown?: string;
+    noteSyntax?: string;
   };
   const db = getDb();
   const item = await db.planItem.findUnique({
@@ -66,29 +67,56 @@ export async function PATCH(
     return NextResponse.json({ item: updated });
   }
 
-  const reviewedAt = new Date();
+  // Re-editing a completed task updates its existing session instead of
+  // creating a new one, and keeps the original completion date stable.
+  const existingSession = await db.studySession.findUnique({
+    where: { planItemId: id },
+  });
+  const schedule = item.problem.reviewSchedule;
+  const reviewedAt = existingSession?.completedAt ?? new Date();
   const review = calculateFeelingScoreReview({
     reviewedAt,
     score: feelingScore,
     reviewAfterDays: body.reviewAfterDays,
-    currentStage: item.problem.reviewSchedule?.stage ?? 0,
-    consecutiveStrong: item.problem.reviewSchedule?.consecutiveStrong ?? 0,
+    currentStage: schedule?.stage ?? 0,
+    consecutiveStrong: schedule?.consecutiveStrong ?? 0,
   });
   const rating = prismaRating(review.rating);
   const accepted = item.kind === "NEW" ? feelingScore < 5 : true;
+  // On edit, don't advance the spaced-repetition stage again; only the
+  // next review date, rating and notes change.
+  const stage = existingSession ? schedule?.stage ?? review.stage : review.stage;
+  const consecutiveStrong = existingSession
+    ? schedule?.consecutiveStrong ?? review.consecutiveStrong
+    : review.consecutiveStrong;
+  const noteMarkdown = body.noteMarkdown ?? existingSession?.noteMarkdown ?? "";
+  const noteSyntax = body.noteSyntax ?? existingSession?.noteSyntax ?? "";
 
   const [updated] = await db.$transaction([
     db.planItem.update({
       where: { id },
       data: { isCompleted: true },
     }),
-    db.studySession.create({
-      data: {
-        problemId: item.problemId,
+    db.studySession.upsert({
+      where: { planItemId: id },
+      update: {
         kind: item.kind,
         rating,
+        feelingScore,
+        reviewAfterDays: review.reviewAfterDays,
+        noteMarkdown,
+        noteSyntax,
+      },
+      create: {
+        problemId: item.problemId,
+        planItemId: id,
+        kind: item.kind,
+        rating,
+        feelingScore,
+        reviewAfterDays: review.reviewAfterDays,
         spentMinutes: Math.max(1, item.estimatedMinutes),
-        noteMarkdown: body.noteMarkdown ?? "",
+        noteMarkdown,
+        noteSyntax,
       },
     }),
     db.problemProgress.upsert({
@@ -109,14 +137,14 @@ export async function PATCH(
       where: { problemId: item.problemId },
       update: {
         nextReviewDate: review.nextReviewDate,
-        stage: review.stage,
-        consecutiveStrong: review.consecutiveStrong,
+        stage,
+        consecutiveStrong,
       },
       create: {
         problemId: item.problemId,
         nextReviewDate: review.nextReviewDate,
-        stage: review.stage,
-        consecutiveStrong: review.consecutiveStrong,
+        stage,
+        consecutiveStrong,
       },
     }),
   ]);
