@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
     noteComplexity?: string;
     noteCodeLink?: string;
     noteLastBlocker?: string;
+    noteMarkdown?: string;
   };
   const rating = body.rating ? ratingMap[body.rating] : undefined;
   const kind = body.kind ? kindMap[body.kind] : undefined;
@@ -68,6 +69,7 @@ export async function POST(request: NextRequest) {
       noteComplexity: body.noteComplexity ?? "",
       noteCodeLink: body.noteCodeLink ?? "",
       noteLastBlocker: body.noteLastBlocker ?? "",
+      noteMarkdown: body.noteMarkdown ?? "",
     },
   });
 

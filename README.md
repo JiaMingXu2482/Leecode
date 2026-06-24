@@ -7,6 +7,7 @@
 ```bash
 npm install
 cp .env.example .env
+# 修改 .env 中的 SESSION_SECRET 和 SYNC_SECRET
 npm run db:generate
 npm run db:init
 npm run db:seed
@@ -54,7 +55,7 @@ npx netlify deploy --prod
 git clone https://github.com/JiaMingXu2482/Leecode.git
 cd Leecode
 cp .env.example .env
-# 修改 .env 中的 SESSION_SECRET
+# 修改 .env 中的 SESSION_SECRET 和 SYNC_SECRET
 docker compose up -d --build
 ```
 
@@ -75,7 +76,15 @@ docker compose up -d --build
 2. 从浏览器开发者工具复制当前登录 Cookie。
 3. 在网站的“力扣同步”页面粘贴 Cookie 并点击同步。
 
-网站不会保存力扣账号密码，只保存你手动提供的 Cookie。Cookie 过期后重新粘贴即可。
+同步会保存 Hot100 的 AC 状态、提交画像，并优先保存最近 AC 代码和最近一次提交代码。网站不会保存力扣账号密码，只保存你手动提供的 Cookie。Cookie 过期后重新粘贴即可。
+
+### 服务器自动同步
+
+在服务器 `.env` 中配置 `SYNC_SECRET` 后，可以用 cron 每天触发一次同步：
+
+```bash
+curl -fsS -X POST "http://127.0.0.1:3000/api/sync/leetcode-cn/cron?secret=你的_SYNC_SECRET"
+```
 
 ## 常用命令
 

@@ -17,5 +17,6 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ...state,
     cookie: state.cookie ? "已保存" : "",
+    hasCookie: Boolean(state.cookie),
   });
 }

@@ -34,6 +34,7 @@ export async function PATCH(
     completed?: boolean;
     feelingScore?: number;
     reviewAfterDays?: number;
+    noteMarkdown?: string;
   };
   const db = getDb();
   const item = await db.planItem.findUnique({
@@ -87,6 +88,7 @@ export async function PATCH(
         kind: item.kind,
         rating,
         spentMinutes: Math.max(1, item.estimatedMinutes),
+        noteMarkdown: body.noteMarkdown ?? "",
       },
     }),
     db.problemProgress.upsert({

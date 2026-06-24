@@ -7,8 +7,10 @@ import {
   CalendarDays,
   Check,
   Clock3,
+  Code2,
   DatabaseZap,
   ExternalLink,
+  FileText,
   Flame,
   ListChecks,
   Plus,
@@ -38,8 +40,8 @@ const viewTitle: Record<ActiveView, { title: string; subtitle: string }> = {
   weekly: { title: "周计划", subtitle: "按周几和具体时段安排刷题，不再固定上午或固定星期。" },
   problems: { title: "Hot100 题库画像", subtitle: "用提交次数、AC 次数、正确率和复习风险判断每道题的状态。" },
   reviews: { title: "复习队列", subtitle: "优先处理到期、逾期和高风险旧题。" },
-  stats: { title: "统计", subtitle: "查看整体进度、标签覆盖和复习债。" },
-  sync: { title: "力扣同步", subtitle: "粘贴 leetcode.cn Cookie，同步 AC 状态和提交画像。" },
+  stats: { title: "统计", subtitle: "查看整体进度、标签覆盖和复习节奏。" },
+  sync: { title: "力扣同步", subtitle: "粘贴 leetcode.cn Cookie，同步 AC 状态、提交画像和最近代码。" },
 };
 
 const weekdayLabels = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
@@ -82,7 +84,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
   }
 
   async function syncLeetCode() {
-    const ok = await requestJson("/api/sync/leetcode-cn", { cookie });
+    const ok = await requestJson("/api/sync/leetcode-cn", { cookie, syncCode: true });
     if (ok) window.location.reload();
   }
 
@@ -96,8 +98,8 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
     if (ok) window.location.reload();
   }
 
-  async function markItem(id: string, feelingScore: number, reviewAfterDays?: number) {
-    const ok = await requestJson(`/api/plan-items/${id}`, { feelingScore, reviewAfterDays }, "PATCH");
+  async function markItem(id: string, feelingScore: number, reviewAfterDays?: number, noteMarkdown?: string) {
+    const ok = await requestJson(`/api/plan-items/${id}`, { feelingScore, reviewAfterDays, noteMarkdown }, "PATCH");
     if (ok) window.location.reload();
   }
 
@@ -218,7 +220,7 @@ function TodayView({
 }: {
   data: DashboardData;
   onAdd: () => void;
-  onMark: (id: string, feelingScore: number, reviewAfterDays?: number) => void;
+  onMark: (id: string, feelingScore: number, reviewAfterDays?: number, noteMarkdown?: string) => void;
   onRemove: (id: string) => void;
   completion: number;
 }) {
@@ -438,8 +440,18 @@ function SyncView({
           <Info label="状态" value={data.syncState.status} />
           <Info label="已 AC / 已检查" value={`${data.syncState.acceptedCount}/${data.syncState.checkedCount}`} />
           <Info label="最近同步" value={data.syncState.lastSyncedAt?.slice(0, 19).replace("T", " ") ?? "-"} />
+          <Info label="最近代码同步" value={data.syncState.lastCodeSyncedAt?.slice(0, 19).replace("T", " ") ?? "-"} />
           <Info label="错误" value={data.syncState.lastError || "-"} />
+          <Info label="代码同步错误" value={data.syncState.lastCodeSyncError || "-"} />
         </dl>
+      </Panel>
+      <Panel title="服务器自动同步" action="cron">
+        <p className="text-sm leading-6 text-slate-600">
+          在服务器 `.env` 里配置 `SYNC_SECRET`，然后用定时任务每天调用这个接口。Cookie 过期时重新在本页粘贴一次即可，历史笔记和代码不会被清空。
+        </p>
+        <code className="mt-3 block overflow-x-auto rounded-md bg-slate-950 p-3 text-xs leading-6 text-slate-100">
+          curl -fsS -X POST &quot;https://你的域名/api/sync/leetcode-cn/cron?secret=你的_SYNC_SECRET&quot;
+        </code>
       </Panel>
     </div>
   );
@@ -454,12 +466,13 @@ function TaskRow({
   onRemove,
 }: {
   item: NonNullable<DashboardData["todayPlan"]>["items"][number];
-  onMark: (id: string, feelingScore: number, reviewAfterDays?: number) => void;
+  onMark: (id: string, feelingScore: number, reviewAfterDays?: number, noteMarkdown?: string) => void;
   onRemove: (id: string) => void;
 }) {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feelingScore, setFeelingScore] = useState<number | null>(null);
   const [reviewAfterDays, setReviewAfterDays] = useState(7);
+  const [noteMarkdown, setNoteMarkdown] = useState("");
 
   function chooseScore(score: number) {
     setFeelingScore(score);
@@ -471,7 +484,7 @@ function TaskRow({
       return;
     }
 
-    onMark(item.id, feelingScore, reviewAfterDays);
+    onMark(item.id, feelingScore, reviewAfterDays, noteMarkdown);
   }
 
   return (
@@ -571,6 +584,15 @@ function TaskRow({
                 className="h-9 w-20 rounded-md border border-slate-300 px-2 text-sm"
               />
             </label>
+            <label className="w-full text-sm text-slate-600">
+              做题笔记
+              <textarea
+                value={noteMarkdown}
+                onChange={(event) => setNoteMarkdown(event.target.value)}
+                placeholder="可写 Markdown：思路、卡点、错因、下次复习要注意的点"
+                className="mt-2 min-h-28 w-full resize-y rounded-md border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
             <button
               onClick={submitFeedback}
               disabled={feelingScore === null}
@@ -597,6 +619,8 @@ function ProblemTable({ problems }: { problems: DashboardData["problems"] }) {
             <th className="border-b border-slate-200 py-2 font-medium">提交</th>
             <th className="border-b border-slate-200 py-2 font-medium">AC</th>
             <th className="border-b border-slate-200 py-2 font-medium">正确率</th>
+            <th className="border-b border-slate-200 py-2 font-medium">笔记</th>
+            <th className="border-b border-slate-200 py-2 font-medium">代码</th>
             <th className="border-b border-slate-200 py-2 font-medium">最近 AC</th>
             <th className="border-b border-slate-200 py-2 font-medium">复习风险</th>
             <th className="border-b border-slate-200 py-2 font-medium">下次复习</th>
@@ -609,8 +633,11 @@ function ProblemTable({ problems }: { problems: DashboardData["problems"] }) {
               <td className="border-b border-slate-100 py-3">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xs text-slate-400">#{problem.frontendId}</span>
-                  <a href={problem.leetcodeCnUrl} target="_blank" className="font-medium hover:text-blue-600">
+                  <a href={`/problems/${problem.id}`} className="font-medium hover:text-blue-600">
                     {problem.titleCn}
+                  </a>
+                  <a href={problem.leetcodeCnUrl} target="_blank" className="text-slate-400 hover:text-blue-600" title="打开力扣">
+                    <ExternalLink size={13} />
                   </a>
                 </div>
               </td>
@@ -618,6 +645,8 @@ function ProblemTable({ problems }: { problems: DashboardData["problems"] }) {
               <td className="border-b border-slate-100 py-3"><IconMetric icon={RefreshCw} value={problem.totalSubmissions} /></td>
               <td className="border-b border-slate-100 py-3"><IconMetric icon={Check} value={problem.acceptedSubmissions} /></td>
               <td className="border-b border-slate-100 py-3">{ratePill(problem.acceptedRate)}</td>
+              <td className="border-b border-slate-100 py-3"><IconMetric icon={FileText} value={problem.noteCount} /></td>
+              <td className="border-b border-slate-100 py-3"><IconMetric icon={Code2} value={problem.codeCount} /></td>
               <td className="border-b border-slate-100 py-3 text-slate-600">{problem.lastAcceptedAt?.slice(0, 10) ?? "-"}</td>
               <td className="border-b border-slate-100 py-3">{riskPill(problem.reviewRiskScore)}</td>
               <td className="border-b border-slate-100 py-3 text-slate-600">{problem.nextReviewDate ?? "-"}</td>

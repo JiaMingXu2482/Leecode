@@ -17,6 +17,7 @@ export async function GET(
       progress: true,
       reviewSchedule: true,
       sessions: { orderBy: { completedAt: "desc" }, take: 20 },
+      leetcodeSubmissions: { orderBy: { submittedAt: "desc" }, take: 20 },
     },
   });
 

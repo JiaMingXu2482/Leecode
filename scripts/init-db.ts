@@ -55,9 +55,24 @@ const statements = [
     "noteComplexity" TEXT NOT NULL DEFAULT '',
     "noteCodeLink" TEXT NOT NULL DEFAULT '',
     "noteLastBlocker" TEXT NOT NULL DEFAULT '',
+    "noteMarkdown" TEXT NOT NULL DEFAULT '',
     "completedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "StudySession_problemId_fkey" FOREIGN KEY ("problemId") REFERENCES "Problem" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "LeetCodeSubmission" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "problemId" TEXT NOT NULL,
+    "submissionId" TEXT NOT NULL,
+    "language" TEXT NOT NULL DEFAULT '',
+    "statusDisplay" TEXT NOT NULL DEFAULT '',
+    "isAccepted" BOOLEAN NOT NULL DEFAULT false,
+    "submittedAt" DATETIME NOT NULL,
+    "code" TEXT NOT NULL DEFAULT '',
+    "syncedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "LeetCodeSubmission_problemId_fkey" FOREIGN KEY ("problemId") REFERENCES "Problem" ("id") ON DELETE CASCADE ON UPDATE CASCADE
   )`,
   `CREATE TABLE IF NOT EXISTS "Availability" (
     "id" TEXT NOT NULL PRIMARY KEY,
@@ -103,7 +118,9 @@ const statements = [
     "status" TEXT NOT NULL DEFAULT 'IDLE',
     "cookie" TEXT NOT NULL DEFAULT '',
     "lastSyncedAt" DATETIME,
+    "lastCodeSyncedAt" DATETIME,
     "lastError" TEXT NOT NULL DEFAULT '',
+    "lastCodeSyncError" TEXT NOT NULL DEFAULT '',
     "acceptedCount" INTEGER NOT NULL DEFAULT 0,
     "checkedCount" INTEGER NOT NULL DEFAULT 0,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -121,6 +138,8 @@ const statements = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "Problem_slug_key" ON "Problem"("slug")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "ProblemProgress_problemId_key" ON "ProblemProgress"("problemId")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "ReviewSchedule_problemId_key" ON "ReviewSchedule"("problemId")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "LeetCodeSubmission_submissionId_key" ON "LeetCodeSubmission"("submissionId")`,
+  `CREATE INDEX IF NOT EXISTS "LeetCodeSubmission_problemId_submittedAt_idx" ON "LeetCodeSubmission"("problemId", "submittedAt")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "Availability_date_key" ON "Availability"("date")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "DailyPlan_date_key" ON "DailyPlan"("date")`,
   `CREATE INDEX IF NOT EXISTS "AvailabilitySlot_date_idx" ON "AvailabilitySlot"("date")`,
@@ -133,6 +152,9 @@ const optionalColumns = [
   `ALTER TABLE "ProblemProgress" ADD COLUMN "acceptedRate" INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE "ProblemProgress" ADD COLUMN "reviewRiskScore" INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE "PlanItem" ADD COLUMN "availabilitySlotId" TEXT`,
+  `ALTER TABLE "StudySession" ADD COLUMN "noteMarkdown" TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE "LeetCodeSyncState" ADD COLUMN "lastCodeSyncedAt" DATETIME`,
+  `ALTER TABLE "LeetCodeSyncState" ADD COLUMN "lastCodeSyncError" TEXT NOT NULL DEFAULT ''`,
 ];
 
 async function main() {

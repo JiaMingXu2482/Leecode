@@ -11,7 +11,19 @@ export async function getDashboardData() {
   const db = getDb();
   const today = startOfUtcDay(new Date());
   const upcomingDates = nextNDays(7, today);
-  const [todayPlan, availabilityRows, availabilitySlots, problems, syncState, total, accepted, dueReviews, sessions] =
+  const [
+    todayPlan,
+    availabilityRows,
+    availabilitySlots,
+    problems,
+    syncState,
+    total,
+    accepted,
+    dueReviews,
+    sessions,
+    noteCounts,
+    codeCounts,
+  ] =
     await Promise.all([
       db.dailyPlan.findUnique({
         where: { date: today },
@@ -56,7 +68,18 @@ export async function getDashboardData() {
       db.problemProgress.count({ where: { isAccepted: true } }),
       db.reviewSchedule.count({ where: { nextReviewDate: { lte: today } } }),
       db.studySession.count(),
+      db.studySession.groupBy({
+        by: ["problemId"],
+        where: { noteMarkdown: { not: "" } },
+        _count: { _all: true },
+      }),
+      db.leetCodeSubmission.groupBy({
+        by: ["problemId"],
+        _count: { _all: true },
+      }),
     ]);
+  const noteCountMap = new Map(noteCounts.map((item) => [item.problemId, item._count._all]));
+  const codeCountMap = new Map(codeCounts.map((item) => [item.problemId, item._count._all]));
 
   const availability = upcomingDates.map((date) => {
     const row = availabilityRows.find((item) => toDateKey(item.date) === toDateKey(date));
@@ -157,12 +180,16 @@ export async function getDashboardData() {
       acceptedSubmissions: problem.progress?.acceptedSubmissions ?? 0,
       acceptedRate: problem.progress?.acceptedRate ?? 0,
       reviewRiskScore: problem.progress?.reviewRiskScore ?? 0,
+      noteCount: noteCountMap.get(problem.id) ?? 0,
+      codeCount: codeCountMap.get(problem.id) ?? 0,
       leetcodeCnUrl: problem.leetcodeCnUrl,
     })),
     syncState: {
       status: syncState.status,
       lastSyncedAt: syncState.lastSyncedAt?.toISOString() ?? null,
+      lastCodeSyncedAt: syncState.lastCodeSyncedAt?.toISOString() ?? null,
       lastError: syncState.lastError,
+      lastCodeSyncError: syncState.lastCodeSyncError,
       acceptedCount: syncState.acceptedCount,
       checkedCount: syncState.checkedCount,
       hasCookie: Boolean(syncState.cookie),

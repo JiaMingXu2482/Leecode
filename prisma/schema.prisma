@@ -34,24 +34,25 @@ enum SyncStatus {
 }
 
 model Problem {
-  id                     String           @id @default(cuid())
-  frontendId             Int              @unique
+  id                     String               @id @default(cuid())
+  frontendId             Int                  @unique
   title                  String
   titleCn                String
-  slug                   String           @unique
+  slug                   String               @unique
   leetcodeCnUrl          String
   difficulty             Difficulty
   tags                   String
   hot100Order            Int
   estimatedNewMinutes    Int
   estimatedReviewMinutes Int
-  isEnabled              Boolean          @default(true)
-  createdAt              DateTime         @default(now())
-  updatedAt              DateTime         @updatedAt
+  isEnabled              Boolean              @default(true)
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
   progress               ProblemProgress?
   reviewSchedule         ReviewSchedule?
   sessions               StudySession[]
   planItems              PlanItem[]
+  leetcodeSubmissions    LeetCodeSubmission[]
 }
 
 model ProblemProgress {
@@ -98,8 +99,26 @@ model StudySession {
   noteComplexity  String       @default("")
   noteCodeLink    String       @default("")
   noteLastBlocker String       @default("")
+  noteMarkdown    String       @default("")
   completedAt     DateTime     @default(now())
   createdAt       DateTime     @default(now())
+}
+
+model LeetCodeSubmission {
+  id            String   @id @default(cuid())
+  problemId     String
+  problem       Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  submissionId  String   @unique
+  language      String   @default("")
+  statusDisplay String   @default("")
+  isAccepted    Boolean  @default(false)
+  submittedAt   DateTime
+  code          String   @default("")
+  syncedAt      DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([problemId, submittedAt])
 }
 
 model Availability {
@@ -152,15 +171,17 @@ model PlanItem {
 }
 
 model LeetCodeSyncState {
-  id            String     @id @default("leetcode-cn")
-  status        SyncStatus @default(IDLE)
-  cookie        String     @default("")
-  lastSyncedAt  DateTime?
-  lastError     String     @default("")
-  acceptedCount Int        @default(0)
-  checkedCount  Int        @default(0)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  id                String     @id @default("leetcode-cn")
+  status            SyncStatus @default(IDLE)
+  cookie            String     @default("")
+  lastSyncedAt      DateTime?
+  lastCodeSyncedAt  DateTime?
+  lastError         String     @default("")
+  lastCodeSyncError String     @default("")
+  acceptedCount     Int        @default(0)
+  checkedCount      Int        @default(0)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 }
 
 model AppSettings {
