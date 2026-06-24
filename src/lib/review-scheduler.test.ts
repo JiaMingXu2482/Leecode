@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateFeelingScoreReview,
   calculateNextReview,
   createInitialReviewSchedules,
+  ratingForFeelingScore,
+  reviewDaysForFeelingScore,
 } from "./review-scheduler";
 
 describe("calculateNextReview", () => {
@@ -31,6 +34,44 @@ describe("calculateNextReview", () => {
     expect(result.nextReviewDate.toISOString().slice(0, 10)).toBe("2026-07-08");
     expect(result.stage).toBe(4);
     expect(result.consecutiveStrong).toBe(2);
+  });
+});
+
+describe("feeling score review", () => {
+  const reviewedAt = new Date("2026-06-23T10:00:00.000Z");
+
+  it("maps 0-5 feeling scores to the expected default review intervals", () => {
+    expect([0, 1, 2, 3, 4, 5].map((score) => reviewDaysForFeelingScore(score as 0 | 1 | 2 | 3 | 4 | 5))).toEqual([
+      7,
+      5,
+      3,
+      2,
+      1,
+      1,
+    ]);
+  });
+
+  it("maps feeling scores to the stored recall rating", () => {
+    expect(ratingForFeelingScore(0)).toBe("mastered");
+    expect(ratingForFeelingScore(1)).toBe("ok");
+    expect(ratingForFeelingScore(2)).toBe("ok");
+    expect(ratingForFeelingScore(3)).toBe("shaky");
+    expect(ratingForFeelingScore(4)).toBe("shaky");
+    expect(ratingForFeelingScore(5)).toBe("forgot");
+  });
+
+  it("uses manual review days as an override for the next review date", () => {
+    const result = calculateFeelingScoreReview({
+      reviewedAt,
+      score: 0,
+      reviewAfterDays: 3,
+      currentStage: 0,
+      consecutiveStrong: 0,
+    });
+
+    expect(result.rating).toBe("mastered");
+    expect(result.reviewAfterDays).toBe(3);
+    expect(result.nextReviewDate.toISOString().slice(0, 10)).toBe("2026-06-26");
   });
 });
 

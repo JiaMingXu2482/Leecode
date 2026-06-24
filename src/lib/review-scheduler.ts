@@ -1,4 +1,5 @@
 export type RecallRating = "forgot" | "shaky" | "ok" | "mastered";
+export type FeelingScore = 0 | 1 | 2 | 3 | 4 | 5;
 export type ProblemDifficulty = "EASY" | "MEDIUM" | "HARD";
 
 export type ReviewCalculationInput = {
@@ -28,6 +29,14 @@ export type InitialReviewSchedule = {
 };
 
 const MASTERED_INTERVALS_BY_STAGE = [1, 2, 4, 7, 15, 30];
+const FEELING_SCORE_INTERVALS: Record<FeelingScore, number> = {
+  0: 7,
+  1: 5,
+  2: 3,
+  3: 2,
+  4: 1,
+  5: 1,
+};
 
 function addUtcDays(date: Date, days: number) {
   const result = new Date(date);
@@ -92,6 +101,59 @@ export function calculateNextReview(
     nextReviewDate: addUtcDays(input.reviewedAt, MASTERED_INTERVALS_BY_STAGE[nextStage]),
     stage: nextStage,
     consecutiveStrong: input.consecutiveStrong + 1,
+  };
+}
+
+export function reviewDaysForFeelingScore(score: FeelingScore) {
+  return FEELING_SCORE_INTERVALS[score];
+}
+
+export function ratingForFeelingScore(score: FeelingScore): RecallRating {
+  if (score >= 5) {
+    return "forgot";
+  }
+
+  if (score >= 3) {
+    return "shaky";
+  }
+
+  if (score >= 1) {
+    return "ok";
+  }
+
+  return "mastered";
+}
+
+export function calculateFeelingScoreReview({
+  reviewedAt,
+  score,
+  reviewAfterDays,
+  currentStage,
+  consecutiveStrong,
+}: {
+  reviewedAt: Date;
+  score: FeelingScore;
+  reviewAfterDays?: number;
+  currentStage: number;
+  consecutiveStrong: number;
+}): ReviewCalculationResult & { rating: RecallRating; reviewAfterDays: number } {
+  const rating = ratingForFeelingScore(score);
+  const days =
+    typeof reviewAfterDays === "number" && Number.isFinite(reviewAfterDays)
+      ? Math.max(1, Math.floor(reviewAfterDays))
+      : reviewDaysForFeelingScore(score);
+  const base = calculateNextReview({
+    reviewedAt,
+    rating,
+    currentStage,
+    consecutiveStrong,
+  });
+
+  return {
+    ...base,
+    rating,
+    reviewAfterDays: days,
+    nextReviewDate: addUtcDays(reviewedAt, days),
   };
 }
 

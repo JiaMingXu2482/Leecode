@@ -16,6 +16,7 @@ import {
   Settings2,
   Target,
   Trash2,
+  X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { DashboardData } from "@/lib/dashboard-data";
@@ -56,13 +57,13 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
   const [message, setMessage] = useState("");
   const completion = Math.round((data.stats.accepted / Math.max(1, data.stats.total)) * 100);
 
-  async function postJson(path: string, body: unknown) {
+  async function requestJson(path: string, body?: unknown, method = "POST") {
     setBusy(path);
     setMessage("");
     const response = await fetch(path, {
-      method: path.includes("/plan-items/") ? "PATCH" : "POST",
+      method,
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: typeof body === "undefined" ? undefined : JSON.stringify(body),
     });
     const payload = (await response.json().catch(() => ({}))) as { error?: string };
     setBusy("");
@@ -76,17 +77,27 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
   }
 
   async function generatePlan() {
-    const ok = await postJson("/api/plans/generate", { slots });
+    const ok = await requestJson("/api/plans/generate", { slots });
     if (ok) window.location.reload();
   }
 
   async function syncLeetCode() {
-    const ok = await postJson("/api/sync/leetcode-cn", { cookie });
+    const ok = await requestJson("/api/sync/leetcode-cn", { cookie });
     if (ok) window.location.reload();
   }
 
-  async function markItem(id: string) {
-    const ok = await postJson(`/api/plan-items/${id}`, { completed: true });
+  async function addTodayTask() {
+    const ok = await requestJson("/api/today/tasks/add", {});
+    if (ok) window.location.reload();
+  }
+
+  async function removeItem(id: string) {
+    const ok = await requestJson(`/api/plan-items/${id}`, undefined, "DELETE");
+    if (ok) window.location.reload();
+  }
+
+  async function markItem(id: string, feelingScore: number, reviewAfterDays?: number) {
+    const ok = await requestJson(`/api/plan-items/${id}`, { feelingScore, reviewAfterDays }, "PATCH");
     if (ok) window.location.reload();
   }
 
@@ -174,7 +185,15 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
         </header>
 
         <div className="px-5 py-5">
-          {active === "today" ? <TodayView data={data} onMark={markItem} completion={completion} /> : null}
+          {active === "today" ? (
+            <TodayView
+              data={data}
+              onAdd={addTodayTask}
+              onMark={markItem}
+              onRemove={removeItem}
+              completion={completion}
+            />
+          ) : null}
           {active === "weekly" ? (
             <WeeklyView slots={slots} setSlot={updateSlot} addSlot={addSlot} removeSlot={removeSlot} generatePlan={generatePlan} />
           ) : null}
@@ -192,11 +211,15 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
 
 function TodayView({
   data,
+  onAdd,
   onMark,
+  onRemove,
   completion,
 }: {
   data: DashboardData;
-  onMark: (id: string) => void;
+  onAdd: () => void;
+  onMark: (id: string, feelingScore: number, reviewAfterDays?: number) => void;
+  onRemove: (id: string) => void;
   completion: number;
 }) {
   const grouped = useMemo(() => groupItemsBySlot(data.todayPlan?.items ?? []), [data.todayPlan]);
@@ -205,6 +228,15 @@ function TodayView({
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
       <section className="min-w-0 space-y-5">
         <MetricGrid data={data} completion={completion} />
+        <div className="flex justify-end">
+          <button
+            onClick={onAdd}
+            className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            <Plus size={15} />
+            添加一题
+          </button>
+        </div>
         <Panel title="今日计划" action={data.todayPlan ? `${data.todayPlan.items.length} 项` : "未生成"}>
           {grouped.length ? (
             <div className="space-y-4">
@@ -216,7 +248,7 @@ function TodayView({
                   </div>
                   <div className="divide-y divide-slate-100">
                     {group.items.map((item) => (
-                      <TaskRow key={item.id} item={item} onMark={onMark} />
+                      <TaskRow key={item.id} item={item} onMark={onMark} onRemove={onRemove} />
                     ))}
                   </div>
                 </div>
@@ -232,8 +264,8 @@ function TodayView({
         <Panel title="今日规则" action="无需手动计时">
           <ul className="space-y-2 text-sm leading-6 text-slate-600">
             <li>1. 点击“打开力扣”做题。</li>
-            <li>2. 做完后点“已处理”，不需要填写反馈。</li>
-            <li>3. 下次同步会更新提交次数、AC 次数和正确率。</li>
+            <li>2. 做完后点“已处理”，用 0-5 分记录做题感觉。</li>
+            <li>3. 分数越高代表越不熟，系统会越快安排复习。</li>
           </ul>
         </Panel>
       </aside>
@@ -413,54 +445,143 @@ function SyncView({
   );
 }
 
+const feelingLabels = ["一次 AC", "基本顺利", "小错误", "卡了一会", "靠提示", "没思路"];
+const feelingDefaultDays = [7, 5, 3, 2, 1, 1];
+
 function TaskRow({
   item,
   onMark,
+  onRemove,
 }: {
   item: NonNullable<DashboardData["todayPlan"]>["items"][number];
-  onMark: (id: string) => void;
+  onMark: (id: string, feelingScore: number, reviewAfterDays?: number) => void;
+  onRemove: (id: string) => void;
 }) {
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feelingScore, setFeelingScore] = useState<number | null>(null);
+  const [reviewAfterDays, setReviewAfterDays] = useState(7);
+
+  function chooseScore(score: number) {
+    setFeelingScore(score);
+    setReviewAfterDays(feelingDefaultDays[score]);
+  }
+
+  function submitFeedback() {
+    if (feelingScore === null) {
+      return;
+    }
+
+    onMark(item.id, feelingScore, reviewAfterDays);
+  }
+
   return (
-    <div className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_80px_220px] md:items-center">
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-xs text-slate-400">#{item.problem.frontendId}</span>
-          <a href={item.problem.leetcodeCnUrl} target="_blank" className="font-medium text-slate-900 hover:text-blue-600">
-            {item.problem.titleCn}
-          </a>
-          <Badge className={difficultyClass[item.problem.difficulty]}>{item.problem.difficulty}</Badge>
-          <span className="text-xs text-slate-500">{kindLabel[item.kind]}</span>
+    <div>
+      <div className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_80px_300px] md:items-center">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-xs text-slate-400">#{item.problem.frontendId}</span>
+            <a href={item.problem.leetcodeCnUrl} target="_blank" className="font-medium text-slate-900 hover:text-blue-600">
+              {item.problem.titleCn}
+            </a>
+            <Badge className={difficultyClass[item.problem.difficulty]}>{item.problem.difficulty}</Badge>
+            <span className="text-xs text-slate-500">{kindLabel[item.kind]}</span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
+            <span className="inline-flex items-center gap-1"><BarChart3 size={13} /> 正确率 {item.problem.acceptedRate}%</span>
+            <span className="inline-flex items-center gap-1"><RefreshCw size={13} /> 提交 {item.problem.totalSubmissions}</span>
+            <span className="inline-flex items-center gap-1"><Flame size={13} /> 风险 {item.problem.reviewRiskScore}</span>
+          </div>
         </div>
-        <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
-          <span className="inline-flex items-center gap-1"><BarChart3 size={13} /> 正确率 {item.problem.acceptedRate}%</span>
-          <span className="inline-flex items-center gap-1"><RefreshCw size={13} /> 提交 {item.problem.totalSubmissions}</span>
-          <span className="inline-flex items-center gap-1"><Flame size={13} /> 风险 {item.problem.reviewRiskScore}</span>
-        </div>
-      </div>
-      <div className="text-sm text-slate-600">{item.estimatedMinutes}m</div>
-      <div className="flex gap-2">
-        <a
-          href={item.problem.leetcodeCnUrl}
-          target="_blank"
-          className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          <ExternalLink size={14} />
-          打开力扣
-        </a>
-        {item.isCompleted ? (
-          <span className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md bg-emerald-50 px-3 text-sm font-medium text-emerald-700">
-            <Check size={14} /> 已处理
-          </span>
-        ) : (
-          <button
-            onClick={() => onMark(item.id)}
-            className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-800"
+        <div className="text-sm text-slate-600">{item.estimatedMinutes}m</div>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href={item.problem.leetcodeCnUrl}
+            target="_blank"
+            className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
-            <Check size={14} />
-            已处理
-          </button>
-        )}
+            <ExternalLink size={14} />
+            打开力扣
+          </a>
+          {item.isCompleted ? (
+            <span className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md bg-emerald-50 px-3 text-sm font-medium text-emerald-700">
+              <Check size={14} /> 已处理
+            </span>
+          ) : (
+            <>
+              <button
+                onClick={() => setFeedbackOpen((open) => !open)}
+                className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                <Check size={14} />
+                已处理
+              </button>
+              <button
+                onClick={() => onRemove(item.id)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                title="从今日任务移除"
+              >
+                <Trash2 size={15} />
+              </button>
+            </>
+          )}
+        </div>
       </div>
+      {feedbackOpen && !item.isCompleted ? (
+        <div className="border-t border-slate-100 bg-slate-50 px-3 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium text-slate-900">做题感觉</div>
+              <div className="mt-1 text-xs text-slate-500">0 表示一次 AC，5 表示完全没思路。</div>
+            </div>
+            <button
+              onClick={() => setFeedbackOpen(false)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-white"
+              title="关闭"
+            >
+              <X size={15} />
+            </button>
+          </div>
+          <div className="mt-4 grid grid-cols-6 gap-2">
+            {feelingLabels.map((label, score) => (
+              <button
+                key={label}
+                onClick={() => chooseScore(score)}
+                className={`rounded-md border px-2 py-2 text-center text-xs transition ${
+                  feelingScore === score
+                    ? "border-blue-500 bg-blue-50 font-semibold text-blue-700"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                }`}
+              >
+                <span className="mx-auto mb-1 flex h-6 w-6 items-center justify-center rounded-full border border-current text-xs">
+                  {score}
+                </span>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              几天后复习
+              <input
+                type="number"
+                min={1}
+                max={60}
+                value={reviewAfterDays}
+                onChange={(event) => setReviewAfterDays(Math.max(1, Number(event.target.value) || 1))}
+                className="h-9 w-20 rounded-md border border-slate-300 px-2 text-sm"
+              />
+            </label>
+            <button
+              onClick={submitFeedback}
+              disabled={feelingScore === null}
+              className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
+            >
+              <Check size={15} />
+              提交反馈
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -527,9 +648,8 @@ function groupItemsBySlot(items: NonNullable<DashboardData["todayPlan"]>["items"
 
 function MetricGrid({ data, completion }: { data: DashboardData; completion: number }) {
   return (
-    <div className="grid gap-4 md:grid-cols-4">
+    <div className="grid gap-4 md:grid-cols-3">
       <Metric label="Hot100 完成" value={`${data.stats.accepted}/${data.stats.total}`} hint={`${completion}%`} />
-      <Metric label="复习债" value={`${data.stats.dueReviews}`} hint="到期/逾期" tone="warning" />
       <Metric label="做题记录" value={`${data.stats.sessions}`} hint="累计 session" />
       <Metric label="今日预算" value={`${data.todayPlan?.totalEstimatedMinutes ?? 0}m`} hint={`${data.todayPlan?.availableMinutes ?? 0}m 可用`} />
     </div>
