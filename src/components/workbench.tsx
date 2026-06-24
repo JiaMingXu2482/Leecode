@@ -13,6 +13,7 @@ import {
   FileText,
   Flame,
   ListChecks,
+  LogOut,
   Plus,
   RefreshCw,
   Settings2,
@@ -186,6 +187,16 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
             );
           })}
         </nav>
+        <button
+          onClick={async () => {
+            await fetch("/api/auth/logout", { method: "POST" });
+            window.location.href = "/login";
+          }}
+          className="mt-8 flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm text-slate-500 transition hover:bg-slate-50 hover:text-slate-950"
+        >
+          <LogOut size={17} />
+          退出登录
+        </button>
       </aside>
 
       <main className="lg:pl-64">

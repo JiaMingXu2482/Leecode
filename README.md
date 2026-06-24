@@ -7,14 +7,14 @@
 ```bash
 npm install
 cp .env.example .env
-# 修改 .env 中的 SESSION_SECRET 和 SYNC_SECRET
+# 修改 .env 中的 SESSION_SECRET、SYNC_SECRET 和 APP_PASSWORD
 npm run db:generate
 npm run db:init
 npm run db:seed
 npm run dev
 ```
 
-打开 `http://localhost:3000`，当前版本无需登录密码。
+打开 `http://localhost:3000`，首次进入会跳转到登录页，输入 `.env` 里 `APP_PASSWORD` 设置的访问密码即可进入。
 
 ## Netlify 预览部署
 
@@ -55,7 +55,7 @@ npx netlify deploy --prod
 git clone https://github.com/JiaMingXu2482/Leecode.git
 cd Leecode
 cp .env.example .env
-# 修改 .env 中的 SESSION_SECRET 和 SYNC_SECRET
+# 修改 .env 中的 SESSION_SECRET、SYNC_SECRET 和 APP_PASSWORD
 docker compose up -d --build
 ```
 
