@@ -51,6 +51,8 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
+const APP_VERSION = "v0.2.0";
+const APP_UPDATED = "2026-06-24";
 
 export function Workbench({ data, active }: { data: DashboardData; active: ActiveView }) {
   const [slots, setSlots] = useState(data.slots);
@@ -160,6 +162,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
           <div>
             <div className="text-sm font-semibold">Hot100 复习计划</div>
             <div className="text-xs text-slate-500">Ebbinghaus Planner</div>
+            <div className="mt-0.5 text-[11px] text-slate-400">{APP_VERSION} · 更新于 {APP_UPDATED}</div>
           </div>
         </div>
         <nav className="mt-8 space-y-1">
@@ -348,23 +351,24 @@ function WeeklyView({
                 .filter((slot) => slot.date === day.date)
                 .sort((a, b) => a.startTime.localeCompare(b.startTime))
                 .map((slot) => (
-                  <div key={slot.id} className="rounded-md border border-slate-200 p-2">
-                    <div className="grid grid-cols-[1fr_1fr_28px] gap-2">
+                  <div key={slot.id} className="rounded-md border border-slate-200 p-2.5">
+                    <div className="flex items-center gap-1.5">
                       <input
                         type="time"
                         value={slot.startTime}
                         onChange={(event) => setSlot(slot.id, { startTime: event.target.value })}
-                        className="h-8 rounded-md border border-slate-300 px-2 text-xs"
+                        className="h-8 min-w-0 flex-1 rounded-md border border-slate-300 px-1.5 text-xs"
                       />
+                      <span className="shrink-0 text-xs text-slate-400">至</span>
                       <input
                         type="time"
                         value={slot.endTime}
                         onChange={(event) => setSlot(slot.id, { endTime: event.target.value })}
-                        className="h-8 rounded-md border border-slate-300 px-2 text-xs"
+                        className="h-8 min-w-0 flex-1 rounded-md border border-slate-300 px-1.5 text-xs"
                       />
                       <button
                         onClick={() => removeSlot(slot.id)}
-                        className="inline-flex h-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:text-red-600"
+                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:border-red-200 hover:text-red-600"
                         title="删除时段"
                       >
                         <Trash2 size={14} />
@@ -376,7 +380,7 @@ function WeeklyView({
                         checked={slot.isAvailable}
                         onChange={(event) => setSlot(slot.id, { isAvailable: event.target.checked })}
                       />
-                      可刷题 · {slot.startTime}-{slot.endTime}
+                      可刷题
                     </label>
                   </div>
                 ))}
@@ -543,7 +547,7 @@ function TaskRow({
 
   return (
     <div>
-      <div className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_80px_300px] md:items-center">
+      <div className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_330px] md:items-center">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs text-slate-400">#{item.problem.frontendId}</span>
@@ -559,24 +563,23 @@ function TaskRow({
             <span className="inline-flex items-center gap-1"><Flame size={13} /> 风险 {item.problem.reviewRiskScore}</span>
           </div>
         </div>
-        <div className="text-sm text-slate-600">{item.estimatedMinutes}m</div>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <a
             href={item.problem.leetcodeCnUrl}
             target="_blank"
-            className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             <ExternalLink size={14} />
             打开力扣
           </a>
           {item.isCompleted ? (
             <>
-              <span className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md bg-emerald-50 px-3 text-sm font-medium text-emerald-700">
+              <span className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md bg-emerald-50 px-2 text-sm font-medium text-emerald-700">
                 <Check size={14} /> 已处理
               </span>
               <button
                 onClick={() => setFeedbackOpen((open) => !open)}
-                className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 title="修改做题感觉或笔记"
               >
                 <FileText size={14} />
@@ -587,17 +590,18 @@ function TaskRow({
             <>
               <button
                 onClick={() => setFeedbackOpen((open) => !open)}
-                className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-800"
+                className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md bg-slate-900 px-2 text-sm font-semibold text-white hover:bg-slate-800"
               >
                 <Check size={14} />
                 已处理
               </button>
               <button
                 onClick={() => onRemove(item.id)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-2 text-sm font-medium text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
                 title="从今日任务移除"
               >
-                <Trash2 size={15} />
+                <Trash2 size={14} />
+                移除
               </button>
             </>
           )}
