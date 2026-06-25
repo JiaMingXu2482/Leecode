@@ -140,20 +140,24 @@ export async function POST(request: NextRequest) {
     include: { progress: true, reviewSchedule: true },
   });
 
-  for (const problem of acceptedProgress) {
-    await db.problemProgress.update({
-      where: { problemId: problem.id },
-      data: {
-        reviewRiskScore: calculateReviewRiskScore({
-          acceptedRate: problem.progress?.acceptedRate ?? 0,
-          totalSubmissions: problem.progress?.totalSubmissions ?? 0,
-          lastAcceptedAt: problem.progress?.lastAcceptedAt ?? null,
-          nextReviewDate: problem.reviewSchedule?.nextReviewDate ?? null,
-          difficulty: problem.difficulty,
-        }),
-      },
-    });
-  }
+  // Recompute risk scores in a single batched transaction instead of one
+  // sequential write per problem (much faster on each regenerate).
+  await db.$transaction(
+    acceptedProgress.map((problem) =>
+      db.problemProgress.update({
+        where: { problemId: problem.id },
+        data: {
+          reviewRiskScore: calculateReviewRiskScore({
+            acceptedRate: problem.progress?.acceptedRate ?? 0,
+            totalSubmissions: problem.progress?.totalSubmissions ?? 0,
+            lastAcceptedAt: problem.progress?.lastAcceptedAt ?? null,
+            nextReviewDate: problem.reviewSchedule?.nextReviewDate ?? null,
+            difficulty: problem.difficulty,
+          }),
+        },
+      }),
+    ),
+  );
 
   const weekDailyPlans = await db.dailyPlan.findMany({
     where: { date: { gte: today, lt: endExclusive } },
