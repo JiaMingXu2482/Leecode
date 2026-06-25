@@ -281,7 +281,14 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
             />
           ) : null}
           {active === "weekly" ? (
-            <WeeklyView slots={slots} setSlot={updateSlot} addSlot={addSlot} removeSlot={removeSlot} generatePlan={generatePlan} />
+            <WeeklyView
+              slots={slots}
+              plans={data.weekPlans}
+              setSlot={updateSlot}
+              addSlot={addSlot}
+              removeSlot={removeSlot}
+              generatePlan={generatePlan}
+            />
           ) : null}
           {active === "problems" ? <ProblemsView data={data} onToggleEnabled={setProblemEnabled} /> : null}
           {active === "reviews" ? <ReviewsView data={data} onToggleEnabled={setProblemEnabled} /> : null}
@@ -369,12 +376,14 @@ function TodayView({
 
 function WeeklyView({
   slots,
+  plans,
   setSlot,
   addSlot,
   removeSlot,
   generatePlan,
 }: {
   slots: Slot[];
+  plans: DashboardData["weekPlans"];
   setSlot: (id: string, patch: Partial<Slot>) => void;
   addSlot: (date: string, weekday: number) => void;
   removeSlot: (id: string) => void;
@@ -383,6 +392,7 @@ function WeeklyView({
   const days = [...new Map(slots.map((slot) => [slot.date, slot])).values()].sort((a, b) =>
     a.date.localeCompare(b.date),
   );
+  const plansByDate = new Map(plans.map((plan) => [plan.date, plan.items]));
 
   return (
     <section className="space-y-5">
@@ -441,6 +451,7 @@ function WeeklyView({
                   </div>
                 ))}
             </div>
+            <DayPlanList items={plansByDate.get(day.date) ?? []} />
           </div>
         ))}
       </div>
@@ -448,6 +459,49 @@ function WeeklyView({
         保存时段并生成周计划
       </button>
     </section>
+  );
+}
+
+function DayPlanList({ items }: { items: DashboardData["weekPlans"][number]["items"] }) {
+  const totalMinutes = items.reduce((sum, item) => sum + item.estimatedMinutes, 0);
+
+  return (
+    <div className="mt-3 border-t border-slate-100 pt-3">
+      <div className="mb-2 flex items-center justify-between text-xs">
+        <span className="font-medium text-slate-500">今日排题</span>
+        <span className="text-slate-400">{items.length ? `${items.length} 题 · ${totalMinutes}m` : "未排"}</span>
+      </div>
+      {items.length ? (
+        <ul className="space-y-1.5">
+          {items.map((item) => (
+            <li key={item.id}>
+              <a
+                href={item.problem.leetcodeCnUrl}
+                target="_blank"
+                className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-slate-50"
+                title={item.problem.titleCn}
+              >
+                <span className="font-mono text-[11px] text-slate-400">#{item.problem.frontendId}</span>
+                <span
+                  className={`min-w-0 flex-1 truncate text-xs ${
+                    item.isCompleted ? "text-slate-400 line-through" : "text-slate-700"
+                  }`}
+                >
+                  {item.problem.titleCn}
+                </span>
+                <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${difficultyClass[item.problem.difficulty]}`}>
+                  {item.problem.difficulty === "EASY" ? "易" : item.problem.difficulty === "MEDIUM" ? "中" : "难"}
+                </span>
+                <span className="shrink-0 text-[10px] text-slate-400">{kindLabel[item.kind]}</span>
+                {item.isCompleted ? <Check size={12} className="shrink-0 text-emerald-500" /> : null}
+              </a>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-slate-400">点下方“保存时段并生成周计划”自动排题。</p>
+      )}
+    </div>
   );
 }
 

@@ -23,6 +23,7 @@ export async function getDashboardData() {
     sessions,
     noteCounts,
     codeCounts,
+    weekDailyPlans,
   ] =
     await Promise.all([
       db.dailyPlan.findUnique({
@@ -77,6 +78,26 @@ export async function getDashboardData() {
       db.leetCodeSubmission.groupBy({
         by: ["problemId"],
         _count: { _all: true },
+      }),
+      db.dailyPlan.findMany({
+        where: { date: { gte: today, lt: addUtcDays(today, 7) } },
+        orderBy: { date: "asc" },
+        include: {
+          items: {
+            orderBy: { sortOrder: "asc" },
+            include: {
+              problem: {
+                select: {
+                  id: true,
+                  frontendId: true,
+                  titleCn: true,
+                  difficulty: true,
+                  leetcodeCnUrl: true,
+                },
+              },
+            },
+          },
+        },
       }),
     ]);
   const noteCountMap = new Map(noteCounts.map((item) => [item.problemId, item._count._all]));
@@ -168,6 +189,23 @@ export async function getDashboardData() {
           })),
         }
       : null,
+    weekPlans: weekDailyPlans.map((plan) => ({
+      date: toDateKey(plan.date),
+      totalEstimatedMinutes: plan.totalEstimatedMinutes,
+      items: plan.items.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        estimatedMinutes: item.estimatedMinutes,
+        isCompleted: item.isCompleted,
+        problem: {
+          id: item.problem.id,
+          frontendId: item.problem.frontendId,
+          titleCn: item.problem.titleCn,
+          difficulty: item.problem.difficulty,
+          leetcodeCnUrl: item.problem.leetcodeCnUrl,
+        },
+      })),
+    })),
     availability,
     slots,
     problems: problems.map((problem) => ({
