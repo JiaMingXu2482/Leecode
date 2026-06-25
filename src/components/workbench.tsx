@@ -51,12 +51,12 @@ const viewTitle: Record<ActiveView, { title: string; subtitle: string }> = {
 
 const weekdayLabels = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 const difficultyClass = {
-  EASY: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  MEDIUM: "border-amber-200 bg-amber-50 text-amber-700",
-  HARD: "border-red-200 bg-red-50 text-red-700",
+  EASY: "border-emerald-500/30 bg-emerald-500/15 text-emerald-300",
+  MEDIUM: "border-amber-500/30 bg-amber-500/15 text-amber-300",
+  HARD: "border-red-500/30 bg-red-500/15 text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v0.4.0";
+const APP_VERSION = "v0.5.0";
 const APP_UPDATED = "2026-06-25";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -186,16 +186,16 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
   }
 
   return (
-    <div className="min-h-screen bg-white text-slate-900">
+    <div className="min-h-screen bg-slate-950 text-slate-100">
       {sidebarOpen === true ? (
         <div
           onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-30 bg-slate-900/30 lg:hidden"
+          className="fixed inset-0 z-30 bg-slate-700/30 lg:hidden"
           aria-hidden
         />
       ) : null}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200 bg-white px-4 py-5 transition-transform duration-200 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-800 bg-slate-900 px-4 py-5 transition-transform duration-200 ${
           sidebarOpen === null
             ? "-translate-x-full lg:translate-x-0"
             : sidebarOpen
@@ -209,7 +209,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold">Hot100 复习计划</div>
-            <div className="text-xs text-slate-500">Ebbinghaus Planner</div>
+            <div className="text-xs text-slate-400">Ebbinghaus Planner</div>
             <div className="mt-0.5 text-[11px] text-slate-400">{APP_VERSION} · 更新于 {APP_UPDATED}</div>
           </div>
         </div>
@@ -224,8 +224,8 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
                 href={item.href}
                 className={`flex h-10 items-center gap-3 rounded-md px-3 text-sm transition ${
                   selected
-                    ? "bg-blue-50 font-semibold text-blue-700"
-                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                    ? "bg-blue-500/15 font-semibold text-blue-300"
+                    : "text-slate-300 hover:bg-slate-800 hover:text-slate-950"
                 }`}
               >
                 <Icon size={17} />
@@ -239,7 +239,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
             await fetch("/api/auth/logout", { method: "POST" });
             window.location.href = "/login";
           }}
-          className="mt-auto flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm text-slate-500 transition hover:bg-slate-50 hover:text-slate-950"
+          className="mt-auto flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm text-slate-400 transition hover:bg-slate-800 hover:text-slate-950"
         >
           <LogOut size={17} />
           退出登录
@@ -251,37 +251,37 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
           sidebarOpen === false ? "lg:pl-0" : "lg:pl-64"
         }`}
       >
-        <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur">
+        <header className="sticky top-0 z-10 border-b border-slate-800 bg-slate-900/95 px-5 py-4 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <button
                 onClick={toggleSidebar}
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-800 text-slate-300 hover:bg-slate-800"
                 title="收起 / 展开侧边栏"
               >
                 <PanelLeft size={18} />
               </button>
               <div className="min-w-0">
                 <h1 className="text-xl font-semibold tracking-tight">{viewTitle[active].title}</h1>
-                <p className="mt-1 text-sm text-slate-500">{viewTitle[active].subtitle}</p>
+                <p className="mt-1 text-sm text-slate-400">{viewTitle[active].subtitle}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm text-slate-600">
+              <span className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-800 px-3 text-sm text-slate-300">
                 <span className={`h-2 w-2 rounded-full ${data.syncState.status === "SUCCESS" ? "bg-emerald-500" : "bg-amber-500"}`} />
                 力扣同步 {data.syncState.acceptedCount}/{data.syncState.checkedCount}
               </span>
               <button
                 onClick={regeneratePlan}
                 disabled={Boolean(busy)}
-                className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
+                className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-700"
               >
                 <RefreshCw size={15} />
                 重新排题
               </button>
             </div>
           </div>
-          {message ? <p className="mt-3 text-sm text-red-600">{message}</p> : null}
+          {message ? <p className="mt-3 text-sm text-red-400">{message}</p> : null}
         </header>
 
         <div className="px-5 py-5">
@@ -399,22 +399,22 @@ function WeeklyView({
 
   return (
     <section className="space-y-4">
-      <p className="text-sm text-slate-500">
+      <p className="text-sm text-slate-400">
         调整每天的题量，系统会按艾宾浩斯遗忘曲线（到期/逾期复习优先，其次新题）实时重新排题。
       </p>
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
         {days.map((day) => (
-          <div key={day.date} className="rounded-lg border border-slate-200 bg-white p-3">
+          <div key={day.date} className="rounded-lg border border-slate-800 bg-slate-900 p-3">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-baseline gap-2">
                 <span className="text-sm font-semibold">{weekdayLabels[day.weekday]}</span>
-                <span className="text-xs text-slate-500">{formatYmd(day.date)}</span>
+                <span className="text-xs text-slate-400">{formatYmd(day.date)}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => changeCount(day.date, -1)}
                   disabled={busy || (counts[day.date] ?? 0) <= 0}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40"
                   title="少一题"
                 >
                   <Minus size={14} />
@@ -423,7 +423,7 @@ function WeeklyView({
                 <button
                   onClick={() => changeCount(day.date, 1)}
                   disabled={busy || (counts[day.date] ?? 0) >= 30}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40"
                   title="多一题"
                 >
                   <Plus size={14} />
@@ -442,9 +442,9 @@ function DayPlanList({ items }: { items: DashboardData["weekPlans"][number]["ite
   const totalMinutes = items.reduce((sum, item) => sum + item.estimatedMinutes, 0);
 
   return (
-    <div className="mt-3 border-t border-slate-100 pt-3">
+    <div className="mt-3 border-t border-slate-800 pt-3">
       <div className="mb-2 flex items-center justify-between text-xs">
-        <span className="font-medium text-slate-500">安排题目</span>
+        <span className="font-medium text-slate-400">安排题目</span>
         <span className="text-slate-400">{items.length ? `${items.length} 题 · ${totalMinutes}m` : "未排"}</span>
       </div>
       {items.length ? (
@@ -454,13 +454,13 @@ function DayPlanList({ items }: { items: DashboardData["weekPlans"][number]["ite
               <a
                 href={item.problem.leetcodeCnUrl}
                 target="_blank"
-                className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-slate-50"
+                className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-slate-800"
                 title={item.problem.titleCn}
               >
                 <span className="font-mono text-[11px] text-slate-400">#{item.problem.frontendId}</span>
                 <span
                   className={`min-w-0 flex-1 truncate text-xs ${
-                    item.isCompleted ? "text-slate-400 line-through" : "text-slate-700"
+                    item.isCompleted ? "text-slate-400 line-through" : "text-slate-200"
                   }`}
                 >
                   {item.problem.titleCn}
@@ -527,10 +527,10 @@ function StatsView({ data, completion }: { data: DashboardData; completion: numb
       <MetricGrid data={data} completion={completion} />
       <Panel title="做题反馈分数（每题平均分）" action={`${scored.length} 题`}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-slate-500">分数越高代表越不熟（0 = 一次 AC，5 = 没思路）。点按钮切换升/降序。</p>
+          <p className="text-xs text-slate-400">分数越高代表越不熟（0 = 一次 AC，5 = 没思路）。点按钮切换升/降序。</p>
           <button
             onClick={() => setSortDir((dir) => (dir === "asc" ? "desc" : "asc"))}
-            className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-300 px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-700 px-2.5 text-xs font-medium text-slate-200 hover:bg-slate-800"
           >
             <ArrowUpDown size={13} />
             按平均分{sortDir === "asc" ? "升序" : "降序"}
@@ -540,29 +540,29 @@ function StatsView({ data, completion }: { data: DashboardData; completion: numb
           <div className="overflow-x-auto">
             <table className="w-full min-w-[520px] border-separate border-spacing-0 text-sm">
               <thead>
-                <tr className="text-left text-xs text-slate-500">
-                  <th className="border-b border-slate-200 py-2 font-medium">题目</th>
-                  <th className="border-b border-slate-200 py-2 font-medium">难度</th>
-                  <th className="border-b border-slate-200 py-2 font-medium">平均分</th>
-                  <th className="border-b border-slate-200 py-2 font-medium">做题次数</th>
+                <tr className="text-left text-xs text-slate-400">
+                  <th className="border-b border-slate-800 py-2 font-medium">题目</th>
+                  <th className="border-b border-slate-800 py-2 font-medium">难度</th>
+                  <th className="border-b border-slate-800 py-2 font-medium">平均分</th>
+                  <th className="border-b border-slate-800 py-2 font-medium">做题次数</th>
                 </tr>
               </thead>
               <tbody>
                 {scored.map((problem) => (
                   <tr key={problem.id}>
-                    <td className="border-b border-slate-100 py-2.5">
+                    <td className="border-b border-slate-800 py-2.5">
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-xs text-slate-400">#{problem.frontendId}</span>
-                        <a href={`/problems/${problem.id}`} className="font-medium hover:text-blue-600">
+                        <a href={`/problems/${problem.id}`} className="font-medium hover:text-blue-400">
                           {problem.titleCn}
                         </a>
                       </div>
                     </td>
-                    <td className="border-b border-slate-100 py-2.5">
+                    <td className="border-b border-slate-800 py-2.5">
                       <Badge className={difficultyClass[problem.difficulty]}>{problem.difficulty}</Badge>
                     </td>
-                    <td className="border-b border-slate-100 py-2.5">{scorePill(problem.avgFeelingScore ?? 0)}</td>
-                    <td className="border-b border-slate-100 py-2.5 text-slate-600">{problem.feelingSessionCount}</td>
+                    <td className="border-b border-slate-800 py-2.5">{scorePill(problem.avgFeelingScore ?? 0)}</td>
+                    <td className="border-b border-slate-800 py-2.5 text-slate-300">{problem.feelingSessionCount}</td>
                   </tr>
                 ))}
               </tbody>
@@ -577,11 +577,11 @@ function StatsView({ data, completion }: { data: DashboardData; completion: numb
           <div className="grid gap-3 md:grid-cols-2">
             {data.stats.byTag.map((tag) => (
               <div key={tag.tag}>
-                <div className="mb-1 flex justify-between text-sm text-slate-600">
+                <div className="mb-1 flex justify-between text-sm text-slate-300">
                   <span>{tag.tag}</span>
                   <span>{tag.accepted}/{tag.total}</span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-2 overflow-hidden rounded-full bg-slate-800">
                   <div className="h-full bg-blue-500" style={{ width: `${(tag.accepted / tag.total) * 100}%` }} />
                 </div>
               </div>
@@ -595,7 +595,7 @@ function StatsView({ data, completion }: { data: DashboardData; completion: numb
 }
 
 function scorePill(score: number) {
-  const tone = score < 1.5 ? "bg-emerald-50 text-emerald-700" : score < 3 ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700";
+  const tone = score < 1.5 ? "bg-emerald-500/15 text-emerald-300" : score < 3 ? "bg-amber-500/15 text-amber-300" : "bg-red-500/15 text-red-300";
   return <span className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${tone}`}>{score.toFixed(2)}</span>;
 }
 
@@ -619,12 +619,12 @@ function SyncView({
           value={cookie}
           onChange={(event) => setCookie(event.target.value)}
           placeholder="粘贴 leetcode.cn Cookie；留空则使用已保存 Cookie 重新同步"
-          className="min-h-36 w-full resize-y rounded-md border border-slate-300 p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          className="min-h-36 w-full resize-y rounded-md border border-slate-700 p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
         />
         <button
           onClick={syncLeetCode}
           disabled={Boolean(busy)}
-          className="mt-3 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
+          className="mt-3 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-700"
         >
           <RefreshCw size={16} />
           {busy === "/api/sync/leetcode-cn" ? "同步中..." : "同步 AC 状态和提交画像"}
@@ -641,7 +641,7 @@ function SyncView({
         </dl>
       </Panel>
       <Panel title="服务器自动同步" action="cron">
-        <p className="text-sm leading-6 text-slate-600">
+        <p className="text-sm leading-6 text-slate-300">
           在服务器 `.env` 里配置 `SYNC_SECRET`，然后用定时任务每天调用这个接口。Cookie 过期时重新在本页粘贴一次即可，历史笔记和代码不会被清空。
         </p>
         <code className="mt-3 block overflow-x-auto rounded-md bg-slate-950 p-3 text-xs leading-6 text-slate-100">
@@ -697,13 +697,13 @@ function TaskRow({
         <div className="min-w-0 lg:flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs text-slate-400">#{item.problem.frontendId}</span>
-            <a href={item.problem.leetcodeCnUrl} target="_blank" className="font-medium text-slate-900 break-words hover:text-blue-600">
+            <a href={item.problem.leetcodeCnUrl} target="_blank" className="font-medium text-slate-100 break-words hover:text-blue-400">
               {item.problem.titleCn}
             </a>
             <Badge className={difficultyClass[item.problem.difficulty]}>{item.problem.difficulty}</Badge>
-            <span className="text-xs text-slate-500">{kindLabel[item.kind]}</span>
+            <span className="text-xs text-slate-400">{kindLabel[item.kind]}</span>
           </div>
-          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
+          <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-400">
             <span className="inline-flex items-center gap-1"><BarChart3 size={13} /> 正确率 {item.problem.acceptedRate}%</span>
             <span className="inline-flex items-center gap-1"><RefreshCw size={13} /> 提交 {item.problem.totalSubmissions}</span>
             <span className="inline-flex items-center gap-1"><Flame size={13} /> 风险 {item.problem.reviewRiskScore}</span>
@@ -713,19 +713,19 @@ function TaskRow({
           <a
             href={item.problem.leetcodeCnUrl}
             target="_blank"
-            className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-slate-700 px-2 text-sm font-medium text-slate-200 hover:bg-slate-800"
           >
             <ExternalLink size={14} />
             打开力扣
           </a>
           {item.isCompleted ? (
             <>
-              <span className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md bg-emerald-50 px-2 text-sm font-medium text-emerald-700">
+              <span className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md bg-emerald-500/15 px-2 text-sm font-medium text-emerald-300">
                 <Check size={14} /> 已处理
               </span>
               <button
                 onClick={() => setFeedbackOpen((open) => !open)}
-                className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-slate-700 px-2 text-sm font-medium text-slate-200 hover:bg-slate-800"
                 title="修改做题感觉或笔记"
               >
                 <FileText size={14} />
@@ -736,14 +736,14 @@ function TaskRow({
             <>
               <button
                 onClick={() => setFeedbackOpen((open) => !open)}
-                className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md bg-slate-900 px-2 text-sm font-semibold text-white hover:bg-slate-800"
+                className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md bg-slate-700 px-2 text-sm font-semibold text-white hover:bg-slate-800"
               >
                 <Check size={14} />
                 已处理
               </button>
               <button
                 onClick={() => onRemove(item.id)}
-                className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-2 text-sm font-medium text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-slate-700 px-2 text-sm font-medium text-slate-400 hover:border-red-500/30 hover:bg-red-500/15 hover:text-red-400"
                 title="从今日任务移除"
               >
                 <Trash2 size={14} />
@@ -754,15 +754,15 @@ function TaskRow({
         </div>
       </div>
       {feedbackOpen ? (
-        <div className="border-t border-slate-100 bg-slate-50 px-3 py-3">
+        <div className="border-t border-slate-800 bg-slate-800 px-3 py-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-medium text-slate-900">做题感觉{item.isCompleted ? "（编辑）" : ""}</div>
-              <div className="mt-1 text-xs text-slate-500">0 表示一次 AC，5 表示完全没思路。</div>
+              <div className="text-sm font-medium text-slate-100">做题感觉{item.isCompleted ? "（编辑）" : ""}</div>
+              <div className="mt-1 text-xs text-slate-400">0 表示一次 AC，5 表示完全没思路。</div>
             </div>
             <button
               onClick={() => setFeedbackOpen(false)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-white"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-900"
               title="关闭"
             >
               <X size={15} />
@@ -775,8 +775,8 @@ function TaskRow({
                 onClick={() => chooseScore(score)}
                 className={`rounded-md border px-2 py-2 text-center text-xs transition ${
                   feelingScore === score
-                    ? "border-blue-500 bg-blue-50 font-semibold text-blue-700"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                    ? "border-blue-500 bg-blue-500/15 font-semibold text-blue-300"
+                    : "border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700"
                 }`}
               >
                 <span className="mx-auto mb-1 flex h-6 w-6 items-center justify-center rounded-full border border-current text-xs">
@@ -786,7 +786,7 @@ function TaskRow({
               </button>
             ))}
           </div>
-          <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
+          <label className="mt-3 flex items-center gap-2 text-sm text-slate-300">
             几天后复习
             <input
               type="number"
@@ -794,37 +794,37 @@ function TaskRow({
               max={60}
               value={reviewAfterDays}
               onChange={(event) => setReviewAfterDays(Math.max(1, Number(event.target.value) || 1))}
-              className="h-9 w-20 rounded-md border border-slate-300 px-2 text-sm"
+              className="h-9 w-20 rounded-md border border-slate-700 px-2 text-sm"
             />
           </label>
           <div className="mt-3 grid gap-3 lg:grid-cols-2">
-            <label className="text-sm text-slate-600">
-              <span className="inline-flex items-center gap-1 font-medium text-slate-900">
+            <label className="text-sm text-slate-300">
+              <span className="inline-flex items-center gap-1 font-medium text-slate-100">
                 <BookOpen size={14} /> 解题思路笔记
               </span>
               <textarea
                 value={noteMarkdown}
                 onChange={(event) => setNoteMarkdown(event.target.value)}
                 placeholder="这道题的思路、卡点、错因、下次复习要注意的点（支持 Markdown）"
-                className="mt-2 min-h-32 w-full resize-y rounded-md border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className="mt-2 min-h-32 w-full resize-y rounded-md border border-slate-700 bg-slate-900 p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
               />
             </label>
-            <label className="text-sm text-slate-600">
-              <span className="inline-flex items-center gap-1 font-medium text-slate-900">
+            <label className="text-sm text-slate-300">
+              <span className="inline-flex items-center gap-1 font-medium text-slate-100">
                 <Code2 size={14} /> C++ 语法 / 知识点
               </span>
               <textarea
                 value={noteSyntax}
                 onChange={(event) => setNoteSyntax(event.target.value)}
                 placeholder="C++ 语法、STL 成员函数用法、容器/迭代器等基础知识点，方便后续整理复习"
-                className="mt-2 min-h-32 w-full resize-y rounded-md border border-slate-300 bg-white p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className="mt-2 min-h-32 w-full resize-y rounded-md border border-slate-700 bg-slate-900 p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
               />
             </label>
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <button
               onClick={() => onExclude(item.problem.id, item.id)}
-              className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+              className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md border border-slate-800 px-3 text-sm font-medium text-slate-400 hover:border-red-500/30 hover:bg-red-500/15 hover:text-red-400"
               title="标记为不会考的题，之后不再安排复习（历史笔记保留）"
             >
               <Trash2 size={14} />
@@ -833,7 +833,7 @@ function TaskRow({
             <button
               onClick={submitFeedback}
               disabled={feelingScore === null}
-              className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
+              className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-700"
             >
               <Check size={15} />
               {item.isCompleted ? "更新反馈" : "提交反馈"}
@@ -856,19 +856,19 @@ function ProblemTable({
     <div className="overflow-x-auto">
       <table className="w-full min-w-[1040px] border-separate border-spacing-0 text-sm">
         <thead>
-          <tr className="text-left text-xs text-slate-500">
-            <th className="border-b border-slate-200 py-2 font-medium">题目</th>
-            <th className="border-b border-slate-200 py-2 font-medium">难度</th>
-            <th className="border-b border-slate-200 py-2 font-medium">提交</th>
-            <th className="border-b border-slate-200 py-2 font-medium">AC</th>
-            <th className="border-b border-slate-200 py-2 font-medium">正确率</th>
-            <th className="border-b border-slate-200 py-2 font-medium">笔记</th>
-            <th className="border-b border-slate-200 py-2 font-medium">代码</th>
-            <th className="border-b border-slate-200 py-2 font-medium">最近 AC</th>
-            <th className="border-b border-slate-200 py-2 font-medium">复习风险</th>
-            <th className="border-b border-slate-200 py-2 font-medium">下次复习</th>
-            <th className="border-b border-slate-200 py-2 font-medium">标签</th>
-            <th className="border-b border-slate-200 py-2 font-medium">操作</th>
+          <tr className="text-left text-xs text-slate-400">
+            <th className="border-b border-slate-800 py-2 font-medium">题目</th>
+            <th className="border-b border-slate-800 py-2 font-medium">难度</th>
+            <th className="border-b border-slate-800 py-2 font-medium">提交</th>
+            <th className="border-b border-slate-800 py-2 font-medium">AC</th>
+            <th className="border-b border-slate-800 py-2 font-medium">正确率</th>
+            <th className="border-b border-slate-800 py-2 font-medium">笔记</th>
+            <th className="border-b border-slate-800 py-2 font-medium">代码</th>
+            <th className="border-b border-slate-800 py-2 font-medium">最近 AC</th>
+            <th className="border-b border-slate-800 py-2 font-medium">复习风险</th>
+            <th className="border-b border-slate-800 py-2 font-medium">下次复习</th>
+            <th className="border-b border-slate-800 py-2 font-medium">标签</th>
+            <th className="border-b border-slate-800 py-2 font-medium">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -877,35 +877,35 @@ function ProblemTable({
 
             return (
             <tr key={problem.id} className={disabled ? "opacity-50" : undefined}>
-              <td className="border-b border-slate-100 py-3">
+              <td className="border-b border-slate-800 py-3">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xs text-slate-400">#{problem.frontendId}</span>
-                  <a href={`/problems/${problem.id}`} className="font-medium hover:text-blue-600">
+                  <a href={`/problems/${problem.id}`} className="font-medium hover:text-blue-400">
                     {problem.titleCn}
                   </a>
-                  <a href={problem.leetcodeCnUrl} target="_blank" className="text-slate-400 hover:text-blue-600" title="打开力扣">
+                  <a href={problem.leetcodeCnUrl} target="_blank" className="text-slate-400 hover:text-blue-400" title="打开力扣">
                     <ExternalLink size={13} />
                   </a>
                   {disabled ? (
-                    <span className="inline-flex rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">已移除</span>
+                    <span className="inline-flex rounded border border-slate-800 bg-slate-800 px-1.5 py-0.5 text-[11px] font-medium text-slate-400">已移除</span>
                   ) : null}
                 </div>
               </td>
-              <td className="border-b border-slate-100 py-3"><Badge className={difficultyClass[problem.difficulty]}>{problem.difficulty}</Badge></td>
-              <td className="border-b border-slate-100 py-3"><IconMetric icon={RefreshCw} value={problem.totalSubmissions} /></td>
-              <td className="border-b border-slate-100 py-3"><IconMetric icon={Check} value={problem.acceptedSubmissions} /></td>
-              <td className="border-b border-slate-100 py-3">{ratePill(problem.acceptedRate)}</td>
-              <td className="border-b border-slate-100 py-3"><IconMetric icon={FileText} value={problem.noteCount} /></td>
-              <td className="border-b border-slate-100 py-3"><IconMetric icon={Code2} value={problem.codeCount} /></td>
-              <td className="border-b border-slate-100 py-3 text-slate-600">{formatYmd(problem.lastAcceptedAt)}</td>
-              <td className="border-b border-slate-100 py-3">{riskPill(problem.reviewRiskScore)}</td>
-              <td className="border-b border-slate-100 py-3 text-slate-600">{formatYmd(problem.nextReviewDate)}</td>
-              <td className="border-b border-slate-100 py-3 text-xs text-slate-500">{problem.tags.split(",").slice(0, 3).join(" / ")}</td>
-              <td className="border-b border-slate-100 py-3">
+              <td className="border-b border-slate-800 py-3"><Badge className={difficultyClass[problem.difficulty]}>{problem.difficulty}</Badge></td>
+              <td className="border-b border-slate-800 py-3"><IconMetric icon={RefreshCw} value={problem.totalSubmissions} /></td>
+              <td className="border-b border-slate-800 py-3"><IconMetric icon={Check} value={problem.acceptedSubmissions} /></td>
+              <td className="border-b border-slate-800 py-3">{ratePill(problem.acceptedRate)}</td>
+              <td className="border-b border-slate-800 py-3"><IconMetric icon={FileText} value={problem.noteCount} /></td>
+              <td className="border-b border-slate-800 py-3"><IconMetric icon={Code2} value={problem.codeCount} /></td>
+              <td className="border-b border-slate-800 py-3 text-slate-300">{formatYmd(problem.lastAcceptedAt)}</td>
+              <td className="border-b border-slate-800 py-3">{riskPill(problem.reviewRiskScore)}</td>
+              <td className="border-b border-slate-800 py-3 text-slate-300">{formatYmd(problem.nextReviewDate)}</td>
+              <td className="border-b border-slate-800 py-3 text-xs text-slate-400">{problem.tags.split(",").slice(0, 3).join(" / ")}</td>
+              <td className="border-b border-slate-800 py-3">
                 {disabled ? (
                   <button
                     onClick={() => onToggleEnabled(problem.id, true)}
-                    className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md border border-slate-300 px-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                    className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md border border-slate-700 px-2 text-xs font-medium text-slate-300 hover:bg-slate-800"
                     title="恢复复习这道题"
                   >
                     <RefreshCw size={13} /> 恢复
@@ -913,7 +913,7 @@ function ProblemTable({
                 ) : (
                   <button
                     onClick={() => onToggleEnabled(problem.id, false)}
-                    className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md border border-slate-200 px-2 text-xs font-medium text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                    className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md border border-slate-800 px-2 text-xs font-medium text-slate-400 hover:border-red-500/30 hover:bg-red-500/15 hover:text-red-400"
                     title="不再复习这道题（历史笔记保留）"
                   >
                     <Trash2 size={13} /> 移除
@@ -945,17 +945,17 @@ function MetricGrid({ data, completion }: { data: DashboardData; completion: num
 function ProgressPanel({ data, completion }: { data: DashboardData; completion: number }) {
   return (
     <Panel title="掌握度" action={`${completion}%`}>
-      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+      <div className="h-2 overflow-hidden rounded-full bg-slate-800">
         <div className="h-full bg-emerald-500" style={{ width: `${completion}%` }} />
       </div>
       <div className="mt-4 space-y-3">
         {data.stats.byTag.map((tag) => (
           <div key={tag.tag}>
-            <div className="mb-1 flex justify-between text-xs text-slate-500">
+            <div className="mb-1 flex justify-between text-xs text-slate-400">
               <span>{tag.tag}</span>
               <span>{tag.accepted}/{tag.total}</span>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
               <div className="h-full bg-blue-500" style={{ width: `${(tag.accepted / tag.total) * 100}%` }} />
             </div>
           </div>
@@ -967,14 +967,14 @@ function ProgressPanel({ data, completion }: { data: DashboardData; completion: 
 
 function Metric({ label, value, hint, tone = "default" }: { label: string; value: string; hint: string; tone?: "default" | "warning" }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+    <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+      <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
         {tone === "warning" ? <Clock3 size={14} className="text-amber-600" /> : null}
         {label}
       </div>
       <div className="mt-2 flex items-end justify-between gap-2">
         <span className="text-2xl font-semibold tracking-tight">{value}</span>
-        <span className="text-xs text-slate-500">{hint}</span>
+        <span className="text-xs text-slate-400">{hint}</span>
       </div>
     </div>
   );
@@ -982,10 +982,10 @@ function Metric({ label, value, hint, tone = "default" }: { label: string; value
 
 function Panel({ title, action, children }: { title: string; action?: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4">
+    <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold">{title}</h2>
-        {action ? <span className="text-xs text-slate-500">{action}</span> : null}
+        {action ? <span className="text-xs text-slate-400">{action}</span> : null}
       </div>
       {children}
     </section>
@@ -997,31 +997,31 @@ function Badge({ className, children }: { className: string; children: React.Rea
 }
 
 function IconMetric({ icon: Icon, value }: { icon: typeof RefreshCw; value: number }) {
-  return <span className="inline-flex items-center gap-1 text-slate-700"><Icon size={14} /> {value}</span>;
+  return <span className="inline-flex items-center gap-1 text-slate-200"><Icon size={14} /> {value}</span>;
 }
 
 function ratePill(rate: number) {
-  const tone = rate === 0 ? "bg-slate-50 text-slate-500" : rate < 50 ? "bg-red-50 text-red-700" : rate < 75 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700";
+  const tone = rate === 0 ? "bg-slate-800 text-slate-400" : rate < 50 ? "bg-red-500/15 text-red-300" : rate < 75 ? "bg-amber-500/15 text-amber-300" : "bg-emerald-500/15 text-emerald-300";
   return <span className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${tone}`}>{rate}%</span>;
 }
 
 function riskPill(score: number) {
-  const tone = score >= 70 ? "bg-red-50 text-red-700" : score >= 40 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700";
+  const tone = score >= 70 ? "bg-red-500/15 text-red-300" : score >= 40 ? "bg-amber-500/15 text-amber-300" : "bg-emerald-500/15 text-emerald-300";
   return <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${tone}`}><AlertTriangle size={13} /> {score}</span>;
 }
 
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs text-slate-500">{label}</dt>
-      <dd className="mt-1 text-sm text-slate-900">{value}</dd>
+      <dt className="text-xs text-slate-400">{label}</dt>
+      <dd className="mt-1 text-sm text-slate-100">{value}</dd>
     </div>
   );
 }
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <div className="flex min-h-32 items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
+    <div className="flex min-h-32 items-center justify-center rounded-md border border-dashed border-slate-700 bg-slate-800 text-sm text-slate-400">
       {text}
     </div>
   );

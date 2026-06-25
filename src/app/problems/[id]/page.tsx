@@ -32,17 +32,17 @@ export default async function ProblemDetailPage({
   }
 
   return (
-    <main className="min-h-screen bg-white px-6 py-8 text-slate-900">
+    <main className="min-h-screen bg-slate-950 px-6 py-8 text-slate-100">
       <div className="mx-auto max-w-4xl">
-        <Link href="/problems" className="text-sm text-blue-600 hover:text-blue-700">
+        <Link href="/problems" className="text-sm text-blue-400 hover:text-blue-300">
           返回题库
         </Link>
-        <div className="mt-6 rounded-lg border border-slate-200 p-5">
+        <div className="mt-6 rounded-lg border border-slate-800 p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="font-mono text-xs text-slate-400">#{problem.frontendId}</p>
               <h1 className="mt-1 text-2xl font-semibold">{problem.titleCn}</h1>
-              <p className="mt-2 text-sm text-slate-500">{problem.tags}</p>
+              <p className="mt-2 text-sm text-slate-400">{problem.tags}</p>
             </div>
             <a
               href={problem.leetcodeCnUrl}
@@ -62,7 +62,7 @@ export default async function ProblemDetailPage({
           </dl>
         </div>
 
-        <section className="mt-5 rounded-lg border border-slate-200 p-5">
+        <section className="mt-5 rounded-lg border border-slate-800 p-5">
           <h2 className="text-sm font-semibold">轻量笔记</h2>
           <div className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
             <Info label="思路" value={problem.progress?.noteIdea || "-"} />
@@ -72,38 +72,38 @@ export default async function ProblemDetailPage({
           </div>
         </section>
 
-        <section className="mt-5 rounded-lg border border-slate-200 p-5">
+        <section className="mt-5 rounded-lg border border-slate-800 p-5">
           <h2 className="text-sm font-semibold">做题历史与笔记</h2>
-          <p className="mt-1 text-xs text-slate-500">每次做题的感觉评分、解题思路和 C++ 语法/知识点笔记，按时间倒序直接展示。</p>
+          <p className="mt-1 text-xs text-slate-400">每次做题的感觉评分、解题思路和 C++ 语法/知识点笔记，按时间倒序直接展示。</p>
           <div className="mt-4 space-y-3">
             {problem.sessions.length ? (
               problem.sessions.map((session) => (
-                <div key={session.id} className="rounded-md border border-slate-200 p-4 text-sm">
+                <div key={session.id} className="rounded-md border border-slate-800 p-4 text-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                      <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-300">
                         {kindLabel[session.kind] ?? session.kind} / {session.rating}
                       </span>
                       {typeof session.feelingScore === "number" ? (
-                        <span className="text-xs text-slate-500">做题感觉 {session.feelingScore}/5</span>
+                        <span className="text-xs text-slate-400">做题感觉 {session.feelingScore}/5</span>
                       ) : null}
                     </div>
-                    <span className="text-slate-500">
+                    <span className="text-slate-400">
                       {session.spentMinutes}m · {session.completedAt.toISOString().slice(0, 10)}
                     </span>
                   </div>
                   {session.noteMarkdown ? (
                     <div className="mt-3">
-                      <div className="text-xs font-medium text-slate-500">解题思路</div>
-                      <div className="mt-1 rounded-md bg-slate-50 p-3 leading-6 whitespace-pre-wrap text-slate-700">
+                      <div className="text-xs font-medium text-slate-400">解题思路</div>
+                      <div className="mt-1 rounded-md bg-slate-900p-3 leading-6 whitespace-pre-wrap text-slate-200">
                         {session.noteMarkdown}
                       </div>
                     </div>
                   ) : null}
                   {session.noteSyntax ? (
                     <div className="mt-3">
-                      <div className="text-xs font-medium text-slate-500">C++ 语法 / 知识点</div>
-                      <div className="mt-1 rounded-md bg-slate-50 p-3 leading-6 whitespace-pre-wrap text-slate-700">
+                      <div className="text-xs font-medium text-slate-400">C++ 语法 / 知识点</div>
+                      <div className="mt-1 rounded-md bg-slate-900p-3 leading-6 whitespace-pre-wrap text-slate-200">
                         {session.noteSyntax}
                       </div>
                     </div>
@@ -114,30 +114,30 @@ export default async function ProblemDetailPage({
                 </div>
               ))
             ) : (
-              <p className="text-sm text-slate-500">还没有本地做题记录。</p>
+              <p className="text-sm text-slate-400">还没有本地做题记录。</p>
             )}
           </div>
         </section>
 
-        <section className="mt-5 rounded-lg border border-slate-200 p-5">
+        <section className="mt-5 rounded-lg border border-slate-800 p-5">
           <h2 className="text-sm font-semibold">代码记录</h2>
           <div className="mt-4 space-y-4">
             {problem.leetcodeSubmissions.length ? (
               problem.leetcodeSubmissions.map((submission) => (
-                <details key={submission.id} className="rounded-md border border-slate-200">
+                <details key={submission.id} className="rounded-md border border-slate-800">
                   <summary className="cursor-pointer px-3 py-2 text-sm">
                     <span className="font-medium">{submission.statusDisplay}</span>
-                    <span className="ml-2 text-slate-500">
+                    <span className="ml-2 text-slate-400">
                       {submission.language || "-"} · {submission.submittedAt.toISOString().slice(0, 19).replace("T", " ")}
                     </span>
                   </summary>
-                  <pre className="max-h-[520px] overflow-auto border-t border-slate-200 bg-slate-950 p-4 text-xs leading-5 text-slate-100">
+                  <pre className="max-h-[520px] overflow-auto border-t border-slate-800 bg-slate-950 p-4 text-xs leading-5 text-slate-100">
                     <code>{submission.code || "这次同步只拿到了提交记录，没有拿到代码内容。"}</code>
                   </pre>
                 </details>
               ))
             ) : (
-              <p className="text-sm text-slate-500">还没有同步到代码。去力扣同步页重新同步一次。</p>
+              <p className="text-sm text-slate-400">还没有同步到代码。去力扣同步页重新同步一次。</p>
             )}
           </div>
         </section>
@@ -149,8 +149,8 @@ export default async function ProblemDetailPage({
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs text-slate-500">{label}</dt>
-      <dd className="mt-1 text-sm text-slate-900">{value}</dd>
+      <dt className="text-xs text-slate-400">{label}</dt>
+      <dd className="mt-1 text-sm text-slate-100">{value}</dd>
     </div>
   );
 }
