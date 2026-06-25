@@ -212,13 +212,6 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
             <div className="text-xs text-slate-500">Ebbinghaus Planner</div>
             <div className="mt-0.5 text-[11px] text-slate-400">{APP_VERSION} · 更新于 {APP_UPDATED}</div>
           </div>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-50 hover:text-slate-700"
-            title="收起侧边栏"
-          >
-            <PanelLeft size={16} />
-          </button>
         </div>
         <nav className="mt-8 space-y-1">
           {navItems.map((item) => {
