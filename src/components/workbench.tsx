@@ -14,6 +14,7 @@ import {
   Flame,
   ListChecks,
   LogOut,
+  PanelLeft,
   Plus,
   RefreshCw,
   Settings2,
@@ -52,14 +53,23 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v0.2.0";
-const APP_UPDATED = "2026-06-24";
+const APP_VERSION = "v0.3.0";
+const APP_UPDATED = "2026-06-25";
 
 export function Workbench({ data, active }: { data: DashboardData; active: ActiveView }) {
   const [slots, setSlots] = useState(data.slots);
   const [cookie, setCookie] = useState("");
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
+  // null = untouched: use the CSS responsive default (open on desktop, hidden
+  // on mobile). Once the user toggles, the boolean takes over.
+  const [sidebarOpen, setSidebarOpen] = useState<boolean | null>(null);
+
+  function toggleSidebar() {
+    setSidebarOpen((prev) =>
+      prev === null ? !window.matchMedia("(min-width: 1024px)").matches : !prev,
+    );
+  }
   const completion = Math.round((data.stats.accepted / Math.max(1, data.stats.total)) * 100);
 
   async function requestJson(path: string, body?: unknown, method = "POST") {
@@ -155,16 +165,38 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
-      <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-slate-200 bg-white px-4 py-5 lg:block">
-        <div className="flex items-center gap-3 px-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 text-white">
+      {sidebarOpen === true ? (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-30 bg-slate-900/30 lg:hidden"
+          aria-hidden
+        />
+      ) : null}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-slate-200 bg-white px-4 py-5 transition-transform duration-200 ${
+          sidebarOpen === null
+            ? "-translate-x-full lg:translate-x-0"
+            : sidebarOpen
+              ? "translate-x-0"
+              : "-translate-x-full"
+        }`}
+      >
+        <div className="flex items-start gap-3 px-2">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white">
             <Target size={18} />
           </div>
-          <div>
+          <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold">Hot100 复习计划</div>
             <div className="text-xs text-slate-500">Ebbinghaus Planner</div>
             <div className="mt-0.5 text-[11px] text-slate-400">{APP_VERSION} · 更新于 {APP_UPDATED}</div>
           </div>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-50 hover:text-slate-700"
+            title="收起侧边栏"
+          >
+            <PanelLeft size={16} />
+          </button>
         </div>
         <nav className="mt-8 space-y-1">
           {navItems.map((item) => {
@@ -192,19 +224,32 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
             await fetch("/api/auth/logout", { method: "POST" });
             window.location.href = "/login";
           }}
-          className="mt-8 flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm text-slate-500 transition hover:bg-slate-50 hover:text-slate-950"
+          className="mt-auto flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm text-slate-500 transition hover:bg-slate-50 hover:text-slate-950"
         >
           <LogOut size={17} />
           退出登录
         </button>
       </aside>
 
-      <main className="lg:pl-64">
+      <main
+        className={`transition-[padding] duration-200 ${
+          sidebarOpen === false ? "lg:pl-0" : "lg:pl-64"
+        }`}
+      >
         <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight">{viewTitle[active].title}</h1>
-              <p className="mt-1 text-sm text-slate-500">{viewTitle[active].subtitle}</p>
+            <div className="flex min-w-0 items-center gap-3">
+              <button
+                onClick={toggleSidebar}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+                title="收起 / 展开侧边栏"
+              >
+                <PanelLeft size={18} />
+              </button>
+              <div className="min-w-0">
+                <h1 className="text-xl font-semibold tracking-tight">{viewTitle[active].title}</h1>
+                <p className="mt-1 text-sm text-slate-500">{viewTitle[active].subtitle}</p>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <span className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm text-slate-600">
@@ -341,13 +386,13 @@ function WeeklyView({
 
   return (
     <section className="space-y-5">
-      <div className="grid gap-4 xl:grid-cols-7">
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
         {days.map((day) => (
-          <div key={day.date} className="min-h-64 rounded-lg border border-slate-200 bg-white p-3">
-            <div className="mb-3 flex items-start justify-between gap-2">
-              <div>
-                <div className="text-sm font-semibold">{weekdayLabels[day.weekday]}</div>
-                <div className="text-xs text-slate-500">{day.date}</div>
+          <div key={day.date} className="rounded-lg border border-slate-200 bg-white p-3">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="flex items-baseline gap-2">
+                <span className="text-sm font-semibold">{weekdayLabels[day.weekday]}</span>
+                <span className="text-xs text-slate-500">{day.date}</span>
               </div>
               <button
                 onClick={() => addSlot(day.date, day.weekday)}
@@ -558,11 +603,11 @@ function TaskRow({
 
   return (
     <div>
-      <div className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_330px] md:items-center">
-        <div className="min-w-0">
+      <div className="flex flex-col gap-3 px-3 py-3 lg:flex-row lg:items-center lg:gap-4">
+        <div className="min-w-0 lg:flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs text-slate-400">#{item.problem.frontendId}</span>
-            <a href={item.problem.leetcodeCnUrl} target="_blank" className="font-medium text-slate-900 hover:text-blue-600">
+            <a href={item.problem.leetcodeCnUrl} target="_blank" className="font-medium text-slate-900 break-words hover:text-blue-600">
               {item.problem.titleCn}
             </a>
             <Badge className={difficultyClass[item.problem.difficulty]}>{item.problem.difficulty}</Badge>
@@ -574,7 +619,7 @@ function TaskRow({
             <span className="inline-flex items-center gap-1"><Flame size={13} /> 风险 {item.problem.reviewRiskScore}</span>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-2 lg:w-[320px] lg:shrink-0">
           <a
             href={item.problem.leetcodeCnUrl}
             target="_blank"
