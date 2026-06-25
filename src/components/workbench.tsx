@@ -7,12 +7,12 @@ import {
   BookOpen,
   CalendarDays,
   Check,
+  ChevronDown,
   Clock3,
   Code2,
   DatabaseZap,
   ExternalLink,
   FileText,
-  Flame,
   ListChecks,
   LogOut,
   Minus,
@@ -29,6 +29,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { DashboardData } from "@/lib/dashboard-data";
+import { TOPIC_GROUPS } from "@/lib/topics";
 
 type ActiveView = "today" | "weekly" | "problems" | "reviews" | "stats" | "sync";
 type WeekDay = DashboardData["availability"][number];
@@ -38,7 +39,7 @@ const navItems: { href: string; key: ActiveView; label: string; icon: typeof Tar
   { href: "/today", key: "today", label: "今日任务", icon: Target },
   { href: "/weekly", key: "weekly", label: "周计划", icon: CalendarDays },
   { href: "/problems", key: "problems", label: "题库画像", icon: BookOpen },
-  { href: "/reviews", key: "reviews", label: "复习队列", icon: ListChecks },
+  { href: "/reviews", key: "reviews", label: "刷题计划", icon: ListChecks },
   { href: "/stats", key: "stats", label: "统计", icon: DatabaseZap },
   { href: "/settings/sync", key: "sync", label: "力扣同步", icon: Settings2 },
 ];
@@ -47,7 +48,7 @@ const viewTitle: Record<ActiveView, { title: string; subtitle: string }> = {
   today: { title: "今日任务", subtitle: "只看今天要处理的题目，打开力扣后做题，完成后标记已处理即可。" },
   weekly: { title: "周计划", subtitle: "设置每天要完成的题量，系统按艾宾浩斯遗忘曲线实时排题。" },
   problems: { title: "Hot100 题库画像", subtitle: "用提交次数、AC 次数、正确率和复习风险判断每道题的状态。" },
-  reviews: { title: "复习队列", subtitle: "优先处理到期、逾期和高风险旧题。" },
+  reviews: { title: "刷题计划", subtitle: "按 Hot100 分类管理：勾选不想刷的题或整类，未勾选的进入刷题列表。" },
   stats: { title: "统计", subtitle: "查看整体进度、标签覆盖和复习节奏。" },
   sync: { title: "力扣同步", subtitle: "粘贴 leetcode.cn Cookie，同步 AC 状态、提交画像和最近代码。" },
 };
@@ -59,7 +60,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v0.6.0";
+const APP_VERSION = "v0.7.0";
 const APP_UPDATED = "2026-06-25";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -203,6 +204,12 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
     if (ok) router.refresh();
   }
 
+  async function bulkSetEnabled(problemIds: string[], isEnabled: boolean) {
+    if (!problemIds.length) return;
+    const ok = await requestJson("/api/problems", { problemIds, isEnabled }, "PATCH");
+    if (ok) router.refresh();
+  }
+
   return (
     <div className="min-h-screen bg-canvas text-fg">
       {sidebarOpen === true ? (
@@ -329,7 +336,9 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
             />
           ) : null}
           {active === "problems" ? <ProblemsView data={data} onToggleEnabled={setProblemEnabled} /> : null}
-          {active === "reviews" ? <ReviewsView data={data} onToggleEnabled={setProblemEnabled} /> : null}
+          {active === "reviews" ? (
+            <TopicsView data={data} onToggleEnabled={setProblemEnabled} onBulkToggle={bulkSetEnabled} />
+          ) : null}
           {active === "stats" ? <StatsView data={data} completion={completion} /> : null}
           {active === "sync" ? (
             <SyncView data={data} cookie={cookie} setCookie={setCookie} syncLeetCode={syncLeetCode} busy={busy} />
@@ -362,6 +371,8 @@ function TodayView({
   completion: number;
 }) {
   const items = data.todayPlan?.items ?? [];
+  const dateKey = data.todayPlan?.date ?? data.today;
+  const dateLabel = `${weekdayLabels[new Date(`${dateKey}T00:00:00Z`).getUTCDay()]} ${formatYmd(dateKey)}`;
 
   return (
     <div className="space-y-5">
@@ -375,17 +386,23 @@ function TodayView({
           添加一题
         </button>
       </div>
-      <Panel title="今日计划" action={data.todayPlan ? `${items.length} 题` : "未生成"}>
+      <div className="rounded-lg border border-line bg-surface">
+        <div className="relative flex items-center justify-center border-b border-line px-4 py-3">
+          <h2 className="text-sm font-semibold">{dateLabel}</h2>
+          <span className="absolute right-4 text-sm text-fg-subtle">{data.todayPlan ? `${items.length} 题` : "未生成"}</span>
+        </div>
         {items.length ? (
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-line">
             {items.map((item) => (
               <TaskRow key={item.id} item={item} onMark={onMark} onRemove={onRemove} onExclude={onExclude} />
             ))}
           </div>
         ) : (
-          <EmptyState text="还没有今日计划。去周计划页设置每天题量，然后排题。" />
+          <div className="p-4">
+            <EmptyState text="还没有今日计划。去周计划页设置每天题量，然后排题。" />
+          </div>
         )}
-      </Panel>
+      </div>
     </div>
   );
 }
@@ -520,21 +537,118 @@ function ProblemsView({
   );
 }
 
-function ReviewsView({
+const difficultyCn = { EASY: "简单", MEDIUM: "中等", HARD: "困难" };
+
+function TopicsView({
   data,
   onToggleEnabled,
+  onBulkToggle,
 }: {
   data: DashboardData;
   onToggleEnabled: (problemId: string, isEnabled: boolean) => void;
+  onBulkToggle: (problemIds: string[], isEnabled: boolean) => void;
 }) {
-  const reviews = [...data.problems]
-    .filter((problem) => problem.isEnabled !== false && (problem.nextReviewDate || problem.reviewRiskScore >= 50))
-    .sort((a, b) => b.reviewRiskScore - a.reviewRiskScore);
+  const [showScore, setShowScore] = useState(false);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  const byId = new Map(data.problems.map((problem) => [problem.frontendId, problem]));
+  const groups = TOPIC_GROUPS.map((group) => {
+    const items = group.ids
+      .map((frontendId) => byId.get(frontendId))
+      .filter((problem): problem is DashboardData["problems"][number] => Boolean(problem));
+    const enabledCount = items.filter((problem) => problem.isEnabled !== false).length;
+    return { name: group.name, items, enabledCount, total: items.length, allExcluded: items.length > 0 && enabledCount === 0 };
+  });
+  // Active topics keep study-plan order; fully-excluded topics sink to the bottom.
+  const sorted = groups
+    .map((group, index) => ({ group, index }))
+    .sort((a, b) => (a.group.allExcluded === b.group.allExcluded ? a.index - b.index : a.group.allExcluded ? 1 : -1))
+    .map((entry) => entry.group);
 
   return (
-    <Panel title="到期与高风险旧题" action={`${reviews.length} 题`}>
-      <ProblemTable problems={reviews} onToggleEnabled={onToggleEnabled} />
-    </Panel>
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-fg-subtle">勾选「不刷」把题目或整类排除出刷题列表（不会删除，排除的题变浅显示，整类排除会折叠并沉到底部）。</p>
+        <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
+          <input type="checkbox" checked={showScore} onChange={(event) => setShowScore(event.target.checked)} />
+          显示做题反馈平均分
+        </label>
+      </div>
+
+      {sorted.map((group) => {
+        const isCollapsed = collapsed[group.name] ?? group.allExcluded;
+        const ids = group.items.map((problem) => problem.id);
+
+        return (
+          <div key={group.name} className="overflow-hidden rounded-lg border border-line bg-surface">
+            <div className="flex items-center justify-between gap-3 border-b border-line bg-muted px-4 py-3">
+              <button
+                onClick={() => setCollapsed((current) => ({ ...current, [group.name]: !isCollapsed }))}
+                className="flex min-w-0 items-center gap-2 text-left"
+              >
+                <ChevronDown size={16} className={`shrink-0 text-fg-subtle transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
+                <span className="font-semibold">{group.name}</span>
+                <span className="text-xs text-fg-subtle">{group.enabledCount}/{group.total} 刷</span>
+              </button>
+              <button
+                onClick={() => onBulkToggle(ids, group.allExcluded)}
+                className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-medium ${
+                  group.allExcluded
+                    ? "border-line-strong text-fg-muted hover:bg-muted"
+                    : "border-line-strong text-fg-subtle hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-500/30 dark:hover:bg-red-500/15 dark:hover:text-red-400"
+                }`}
+              >
+                {group.allExcluded ? "恢复整类" : "整类不刷"}
+              </button>
+            </div>
+            {isCollapsed ? null : (
+              <ul>
+                {group.items.map((problem) => {
+                  const excluded = problem.isEnabled === false;
+                  return (
+                    <li
+                      key={problem.id}
+                      className={`flex items-center gap-3 border-b border-line px-4 py-3 last:border-b-0 ${excluded ? "opacity-45" : ""}`}
+                    >
+                      {problem.isAccepted ? (
+                        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
+                          <Check size={13} />
+                        </span>
+                      ) : (
+                        <span className="h-5 w-5 shrink-0 rounded-full border border-line-strong" />
+                      )}
+                      <a
+                        href={`/problems/${problem.id}`}
+                        className={`min-w-0 flex-1 truncate font-medium hover:text-blue-600 dark:hover:text-blue-400 ${excluded ? "line-through" : ""}`}
+                      >
+                        <span className="mr-1 font-mono text-xs text-fg-subtle">#{problem.frontendId}</span>
+                        {problem.titleCn}
+                      </a>
+                      {showScore ? (
+                        <span className="shrink-0 text-xs text-fg-subtle">
+                          均分 {problem.avgFeelingScore !== null ? problem.avgFeelingScore.toFixed(1) : "—"}
+                        </span>
+                      ) : null}
+                      <span className={`shrink-0 rounded px-2 py-0.5 text-xs font-semibold ${difficultyClass[problem.difficulty]}`}>
+                        {difficultyCn[problem.difficulty]}
+                      </span>
+                      <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-fg-subtle" title="勾选 = 不刷这道题">
+                        <input
+                          type="checkbox"
+                          checked={excluded}
+                          onChange={(event) => onToggleEnabled(problem.id, !event.target.checked)}
+                        />
+                        不刷
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </section>
   );
 }
 
@@ -726,17 +840,15 @@ function TaskRow({
       <div className="flex flex-col gap-3 px-3 py-3 lg:flex-row lg:items-center lg:gap-4">
         <div className="min-w-0 lg:flex-1">
           <div className="flex flex-wrap items-center gap-2">
+            <Badge className={difficultyClass[item.problem.difficulty]}>{difficultyCn[item.problem.difficulty]}</Badge>
             <span className="font-mono text-xs text-fg-subtle">#{item.problem.frontendId}</span>
             <a href={item.problem.leetcodeCnUrl} target="_blank" className="font-medium text-fg break-words hover:text-blue-400">
               {item.problem.titleCn}
             </a>
-            <Badge className={difficultyClass[item.problem.difficulty]}>{item.problem.difficulty}</Badge>
             <span className="text-xs text-fg-subtle">{kindLabel[item.kind]}</span>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-3 text-xs text-fg-subtle">
-            <span className="inline-flex items-center gap-1"><BarChart3 size={13} /> 正确率 {item.problem.acceptedRate}%</span>
-            <span className="inline-flex items-center gap-1"><RefreshCw size={13} /> 提交 {item.problem.totalSubmissions}</span>
-            <span className="inline-flex items-center gap-1"><Flame size={13} /> 风险 {item.problem.reviewRiskScore}</span>
+            <span className="inline-flex items-center gap-1 text-xs text-fg-subtle">
+              <BarChart3 size={13} /> 反馈均分 {(item.problem.avgFeelingScore ?? 5).toFixed(1)}
+            </span>
           </div>
         </div>
         <div className="grid grid-cols-3 gap-2 lg:w-[320px] lg:shrink-0">

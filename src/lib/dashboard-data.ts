@@ -116,6 +116,23 @@ export async function getDashboardData() {
     ]),
   );
 
+  // Latest session per problem in today's plan, so a regenerated plan item
+  // still surfaces the problem's history (feedback + notes) instead of looking
+  // like it was never done.
+  const todayProblemIds = todayPlan?.items.map((item) => item.problemId) ?? [];
+  const latestSessions = todayProblemIds.length
+    ? await db.studySession.findMany({
+        where: { problemId: { in: todayProblemIds } },
+        orderBy: { completedAt: "desc" },
+      })
+    : [];
+  const latestSessionByProblem = new Map<string, (typeof latestSessions)[number]>();
+  for (const session of latestSessions) {
+    if (!latestSessionByProblem.has(session.problemId)) {
+      latestSessionByProblem.set(session.problemId, session);
+    }
+  }
+
   const availability = upcomingDates.map((date) => {
     const row = availabilityRows.find((item) => toDateKey(item.date) === toDateKey(date));
 
@@ -164,17 +181,19 @@ export async function getDashboardData() {
           date: toDateKey(todayPlan.date),
           availableMinutes: todayPlan.availableMinutes,
           totalEstimatedMinutes: todayPlan.totalEstimatedMinutes,
-          items: todayPlan.items.map((item) => ({
+          items: todayPlan.items.map((item) => {
+            const session = item.session ?? latestSessionByProblem.get(item.problemId) ?? null;
+            return {
             id: item.id,
             kind: item.kind,
             estimatedMinutes: item.estimatedMinutes,
             isCompleted: item.isCompleted,
-            session: item.session
+            session: session
               ? {
-                  feelingScore: item.session.feelingScore,
-                  reviewAfterDays: item.session.reviewAfterDays,
-                  noteMarkdown: item.session.noteMarkdown,
-                  noteSyntax: item.session.noteSyntax,
+                  feelingScore: session.feelingScore,
+                  reviewAfterDays: session.reviewAfterDays,
+                  noteMarkdown: session.noteMarkdown,
+                  noteSyntax: session.noteSyntax,
                 }
               : null,
             slot: item.availabilitySlot
@@ -199,8 +218,10 @@ export async function getDashboardData() {
               acceptedSubmissions: item.problem.progress?.acceptedSubmissions ?? 0,
               acceptedRate: item.problem.progress?.acceptedRate ?? 0,
               reviewRiskScore: item.problem.progress?.reviewRiskScore ?? 0,
+              avgFeelingScore: feelingStatMap.get(item.problem.id)?.avg ?? null,
             },
-          })),
+            };
+          }),
         }
       : null,
     weekPlans: weekDailyPlans.map((plan) => ({
