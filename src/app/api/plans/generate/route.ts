@@ -1,92 +1,25 @@
 import { PlanItemKind } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
+import { addUtcDays, nextNDays, startOfUtcDay, toDateKey } from "@/lib/dates";
 import { isAuthorizedRequest } from "@/lib/auth";
-import {
-  addUtcDays,
-  fromDateKey,
-  minutesBetween,
-  nextNDays,
-  startOfUtcDay,
-  toDateKey,
-  weekdayIndex,
-} from "@/lib/dates";
 import { getDb } from "@/lib/db";
-import {
-  generateWeeklyPlan,
-  type AvailabilitySlotInput,
-  type PlanCandidate,
-} from "@/lib/plan-generator";
 import { calculateReviewRiskScore } from "@/lib/risk";
 
-type SlotPayload = {
-  id?: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  isAvailable: boolean;
+type CandidateKind = "review" | "retest" | "new";
+
+type Candidate = {
+  problemId: string;
+  kind: CandidateKind;
+  estimatedMinutes: number;
 };
 
-function planKind(kind: string): PlanItemKind {
+const DEFAULT_DAILY_COUNT = 3;
+const MAX_DAILY_COUNT = 30;
+
+function planKind(kind: CandidateKind): PlanItemKind {
   if (kind === "review") return "REVIEW";
   if (kind === "retest") return "RETEST";
   return "NEW";
-}
-
-function normalizeSlot(slot: SlotPayload): AvailabilitySlotInput & { weekday: number } {
-  const date = fromDateKey(slot.date);
-
-  return {
-    id: slot.id ?? `${slot.date}-${slot.startTime}-${slot.endTime}`,
-    date: slot.date,
-    weekday: weekdayIndex(date),
-    startTime: slot.startTime,
-    endTime: slot.endTime,
-    isAvailable: slot.isAvailable,
-    availableMinutes: slot.isAvailable ? minutesBetween(slot.startTime, slot.endTime) : 0,
-  };
-}
-
-function defaultSlots(): (AvailabilitySlotInput & { weekday: number })[] {
-  return nextNDays(7).map((date) => {
-    const dateKey = toDateKey(date);
-
-    return {
-      id: `${dateKey}-09:00-11:30`,
-      date: dateKey,
-      weekday: weekdayIndex(date),
-      startTime: "09:00",
-      endTime: "11:30",
-      isAvailable: true,
-      availableMinutes: 150,
-    };
-  });
-}
-
-async function persistSlots(slots: (AvailabilitySlotInput & { weekday: number })[]) {
-  const db = getDb();
-
-  for (const slot of slots) {
-    await db.availabilitySlot.upsert({
-      where: { id: slot.id },
-      update: {
-        date: fromDateKey(slot.date),
-        weekday: slot.weekday,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
-        isAvailable: slot.isAvailable,
-        availableMinutes: slot.availableMinutes,
-      },
-      create: {
-        id: slot.id,
-        date: fromDateKey(slot.date),
-        weekday: slot.weekday,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
-        isAvailable: slot.isAvailable,
-        availableMinutes: slot.availableMinutes,
-      },
-    });
-  }
 }
 
 export async function POST(request: NextRequest) {
@@ -94,112 +27,111 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  const body = (await request.json().catch(() => ({}))) as { slots?: SlotPayload[] };
+  const body = (await request.json().catch(() => ({}))) as {
+    counts?: Record<string, number>;
+    dailyCount?: number;
+  };
   const db = getDb();
-  const incomingSlots = body.slots?.length ? body.slots.map(normalizeSlot) : [];
-  let slots = incomingSlots;
+  const today = startOfUtcDay(new Date());
+  const dates = nextNDays(7, today);
+  const endExclusive = addUtcDays(today, 7);
 
-  if (!slots.length) {
-    const today = startOfUtcDay(new Date());
-    const rows = await db.availabilitySlot.findMany({
-      where: { date: { gte: today, lt: addUtcDays(today, 7) } },
-      orderBy: [{ date: "asc" }, { startTime: "asc" }],
-    });
-
-    slots = rows.length
-      ? rows.map((slot) => ({
-          id: slot.id,
-          date: toDateKey(slot.date),
-          weekday: slot.weekday,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          isAvailable: slot.isAvailable,
-          availableMinutes: slot.availableMinutes,
-        }))
-      : defaultSlots();
+  // Desired number of problems per day.
+  const counts = new Map<string, number>();
+  for (const date of dates) {
+    const key = toDateKey(date);
+    const raw = body.counts?.[key];
+    const value = typeof raw === "number" ? raw : body.dailyCount ?? DEFAULT_DAILY_COUNT;
+    counts.set(key, Math.max(0, Math.min(MAX_DAILY_COUNT, Math.floor(value))));
   }
 
-  await persistSlots(slots);
-
-  const dateKeys = slots.map((slot) => slot.date).sort();
-  const firstDate = fromDateKey(dateKeys[0]);
-  const lastDate = addUtcDays(fromDateKey(dateKeys[dateKeys.length - 1]), 1);
-
+  // Candidates, ordered by the Ebbinghaus schedule: due/overdue reviews first
+  // (earliest next-review date, then highest risk), then untouched new problems.
   const schedules = await db.reviewSchedule.findMany({
-    where: { nextReviewDate: { lt: lastDate } },
+    where: { problem: { isEnabled: true } },
     include: { problem: { include: { progress: true } } },
     orderBy: { nextReviewDate: "asc" },
   });
-  const reviewCandidates: PlanCandidate[] = schedules.map((schedule) => ({
-    problemId: schedule.problemId,
-    kind: schedule.stage === 0 ? "retest" : "review",
-    title: schedule.problem.titleCn,
-    difficulty: schedule.problem.difficulty,
-    tags: schedule.problem.tags.split(","),
-    dueDate: toDateKey(schedule.nextReviewDate),
-    estimatedMinutes: schedule.problem.estimatedReviewMinutes,
-    priority: Math.max(
-      schedule.nextReviewDate < startOfUtcDay(new Date()) ? 100 : 70,
-      schedule.problem.progress?.reviewRiskScore ?? 0,
-    ),
-  }));
+  const reviewCandidates = schedules
+    .map((schedule) => ({
+      problemId: schedule.problemId,
+      kind: (schedule.stage === 0 ? "retest" : "review") as CandidateKind,
+      estimatedMinutes: schedule.problem.estimatedReviewMinutes,
+      dueAt: schedule.nextReviewDate.getTime(),
+      risk: schedule.problem.progress?.reviewRiskScore ?? 0,
+    }))
+    .sort((a, b) => a.dueAt - b.dueAt || b.risk - a.risk);
 
   const newProblems = await db.problem.findMany({
     where: {
       isEnabled: true,
-      progress: { is: { isAccepted: false } },
       reviewSchedule: null,
+      OR: [{ progress: null }, { progress: { is: { isAccepted: false } } }],
     },
     orderBy: { hot100Order: "asc" },
-    take: 40,
-  });
-  const newProblemCandidates: PlanCandidate[] = newProblems.map((problem) => ({
-    problemId: problem.id,
-    kind: "new",
-    title: problem.titleCn,
-    difficulty: problem.difficulty,
-    tags: problem.tags.split(","),
-    estimatedMinutes: problem.estimatedNewMinutes,
-    priority: 10,
-  }));
-
-  const plan = generateWeeklyPlan({
-    startDate: firstDate,
-    availabilitySlots: slots,
-    reviewCandidates,
-    newProblemCandidates,
+    take: 120,
   });
 
-  for (const day of plan.days) {
+  const queue: Candidate[] = [
+    ...reviewCandidates.map(({ problemId, kind, estimatedMinutes }) => ({
+      problemId,
+      kind,
+      estimatedMinutes,
+    })),
+    ...newProblems.map((problem) => ({
+      problemId: problem.id,
+      kind: "new" as CandidateKind,
+      estimatedMinutes: problem.estimatedNewMinutes,
+    })),
+  ];
+
+  // Walk days in order, pulling each day's quota off the front of the queue so
+  // earlier days get the most-due reviews first.
+  const assigned = new Set<string>();
+  let cursor = 0;
+  const perDay = dates.map((date) => {
+    const quota = counts.get(toDateKey(date)) ?? 0;
+    const items: Candidate[] = [];
+    while (items.length < quota && cursor < queue.length) {
+      const candidate = queue[cursor];
+      cursor += 1;
+      if (assigned.has(candidate.problemId)) {
+        continue;
+      }
+      assigned.add(candidate.problemId);
+      items.push(candidate);
+    }
+    return { date, items };
+  });
+
+  for (const { date, items } of perDay) {
+    const totalMinutes = items.reduce((sum, item) => sum + item.estimatedMinutes, 0);
     const dailyPlan = await db.dailyPlan.upsert({
-      where: { date: fromDateKey(day.date) },
+      where: { date },
       update: {
-        availableMinutes: day.availableMinutes,
-        totalEstimatedMinutes: day.totalEstimatedMinutes,
+        availableMinutes: totalMinutes,
+        totalEstimatedMinutes: totalMinutes,
         items: { deleteMany: {} },
       },
       create: {
-        date: fromDateKey(day.date),
-        availableMinutes: day.availableMinutes,
-        totalEstimatedMinutes: day.totalEstimatedMinutes,
+        date,
+        availableMinutes: totalMinutes,
+        totalEstimatedMinutes: totalMinutes,
       },
     });
 
     let sortOrder = 1;
-    for (const slot of day.slots) {
-      for (const item of slot.items) {
-        await db.planItem.create({
-          data: {
-            dailyPlanId: dailyPlan.id,
-            availabilitySlotId: slot.id,
-            problemId: item.problemId,
-            kind: planKind(item.kind),
-            estimatedMinutes: item.estimatedMinutes,
-            sortOrder,
-          },
-        });
-        sortOrder += 1;
-      }
+    for (const item of items) {
+      await db.planItem.create({
+        data: {
+          dailyPlanId: dailyPlan.id,
+          problemId: item.problemId,
+          kind: planKind(item.kind),
+          estimatedMinutes: item.estimatedMinutes,
+          sortOrder,
+        },
+      });
+      sortOrder += 1;
     }
   }
 
@@ -223,5 +155,43 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  return NextResponse.json({ plan, unscheduled: plan.unscheduled });
+  const weekDailyPlans = await db.dailyPlan.findMany({
+    where: { date: { gte: today, lt: endExclusive } },
+    orderBy: { date: "asc" },
+    include: {
+      items: {
+        orderBy: { sortOrder: "asc" },
+        include: {
+          problem: {
+            select: {
+              id: true,
+              frontendId: true,
+              titleCn: true,
+              difficulty: true,
+              leetcodeCnUrl: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  const weekPlans = weekDailyPlans.map((plan) => ({
+    date: toDateKey(plan.date),
+    totalEstimatedMinutes: plan.totalEstimatedMinutes,
+    items: plan.items.map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      estimatedMinutes: item.estimatedMinutes,
+      isCompleted: item.isCompleted,
+      problem: {
+        id: item.problem.id,
+        frontendId: item.problem.frontendId,
+        titleCn: item.problem.titleCn,
+        difficulty: item.problem.difficulty,
+        leetcodeCnUrl: item.problem.leetcodeCnUrl,
+      },
+    })),
+  }));
+
+  return NextResponse.json({ weekPlans });
 }

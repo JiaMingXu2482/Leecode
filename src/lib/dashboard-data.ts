@@ -23,6 +23,7 @@ export async function getDashboardData() {
     sessions,
     noteCounts,
     codeCounts,
+    feelingStats,
     weekDailyPlans,
   ] =
     await Promise.all([
@@ -79,6 +80,12 @@ export async function getDashboardData() {
         by: ["problemId"],
         _count: { _all: true },
       }),
+      db.studySession.groupBy({
+        by: ["problemId"],
+        where: { feelingScore: { not: null } },
+        _avg: { feelingScore: true },
+        _count: { _all: true },
+      }),
       db.dailyPlan.findMany({
         where: { date: { gte: today, lt: addUtcDays(today, 7) } },
         orderBy: { date: "asc" },
@@ -102,12 +109,19 @@ export async function getDashboardData() {
     ]);
   const noteCountMap = new Map(noteCounts.map((item) => [item.problemId, item._count._all]));
   const codeCountMap = new Map(codeCounts.map((item) => [item.problemId, item._count._all]));
+  const feelingStatMap = new Map(
+    feelingStats.map((item) => [
+      item.problemId,
+      { avg: item._avg.feelingScore, count: item._count._all },
+    ]),
+  );
 
   const availability = upcomingDates.map((date) => {
     const row = availabilityRows.find((item) => toDateKey(item.date) === toDateKey(date));
 
     return {
       date: toDateKey(date),
+      weekday: weekdayIndex(date),
       isAvailable: row?.isAvailable ?? true,
       availableMinutes: row?.availableMinutes ?? 150,
     };
@@ -229,6 +243,8 @@ export async function getDashboardData() {
       reviewRiskScore: problem.progress?.reviewRiskScore ?? 0,
       noteCount: noteCountMap.get(problem.id) ?? 0,
       codeCount: codeCountMap.get(problem.id) ?? 0,
+      avgFeelingScore: feelingStatMap.get(problem.id)?.avg ?? null,
+      feelingSessionCount: feelingStatMap.get(problem.id)?.count ?? 0,
       leetcodeCnUrl: problem.leetcodeCnUrl,
     })),
     syncState: {

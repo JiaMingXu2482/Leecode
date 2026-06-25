@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  ArrowUpDown,
   BarChart3,
   BookOpen,
   CalendarDays,
@@ -14,6 +15,7 @@ import {
   Flame,
   ListChecks,
   LogOut,
+  Minus,
   PanelLeft,
   Plus,
   RefreshCw,
@@ -22,11 +24,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { DashboardData } from "@/lib/dashboard-data";
 
 type ActiveView = "today" | "weekly" | "problems" | "reviews" | "stats" | "sync";
-type Slot = DashboardData["slots"][number];
+type WeekDay = DashboardData["availability"][number];
+type WeekPlans = DashboardData["weekPlans"];
 
 const navItems: { href: string; key: ActiveView; label: string; icon: typeof Target }[] = [
   { href: "/today", key: "today", label: "今日任务", icon: Target },
@@ -39,7 +42,7 @@ const navItems: { href: string; key: ActiveView; label: string; icon: typeof Tar
 
 const viewTitle: Record<ActiveView, { title: string; subtitle: string }> = {
   today: { title: "今日任务", subtitle: "只看今天要处理的题目，打开力扣后做题，完成后标记已处理即可。" },
-  weekly: { title: "周计划", subtitle: "按周几和具体时段安排刷题，不再固定上午或固定星期。" },
+  weekly: { title: "周计划", subtitle: "设置每天要完成的题量，系统按艾宾浩斯遗忘曲线实时排题。" },
   problems: { title: "Hot100 题库画像", subtitle: "用提交次数、AC 次数、正确率和复习风险判断每道题的状态。" },
   reviews: { title: "复习队列", subtitle: "优先处理到期、逾期和高风险旧题。" },
   stats: { title: "统计", subtitle: "查看整体进度、标签覆盖和复习节奏。" },
@@ -53,11 +56,24 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v0.3.0";
+const APP_VERSION = "v0.4.0";
 const APP_UPDATED = "2026-06-25";
+const DEFAULT_DAILY_COUNT = 3;
+
+function formatYmd(value?: string | null) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return `${String(date.getUTCFullYear()).slice(2)}/${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
+}
 
 export function Workbench({ data, active }: { data: DashboardData; active: ActiveView }) {
-  const [slots, setSlots] = useState(data.slots);
   const [cookie, setCookie] = useState("");
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
@@ -91,9 +107,38 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
     return true;
   }
 
-  async function generatePlan() {
-    const ok = await requestJson("/api/plans/generate", { slots });
-    if (ok) window.location.reload();
+  // Regenerate the whole week from per-day problem counts. Returns the fresh
+  // week plans so the weekly view can update in place (real-time).
+  async function generateWeekly(counts: Record<string, number>) {
+    setBusy("/api/plans/generate");
+    setMessage("");
+    const response = await fetch("/api/plans/generate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ counts }),
+    });
+    setBusy("");
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      setMessage(payload.error ?? "排题失败");
+      return null;
+    }
+
+    const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
+    return payload.weekPlans;
+  }
+
+  async function regeneratePlan() {
+    const counts: Record<string, number> = {};
+    for (const day of data.availability) {
+      counts[day.date] = DEFAULT_DAILY_COUNT;
+    }
+    for (const plan of data.weekPlans) {
+      counts[plan.date] = plan.items.length || DEFAULT_DAILY_COUNT;
+    }
+    const result = await generateWeekly(counts);
+    if (result) window.location.reload();
   }
 
   async function syncLeetCode() {
@@ -138,29 +183,6 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
   async function setProblemEnabled(problemId: string, isEnabled: boolean) {
     const ok = await requestJson(`/api/problems/${problemId}`, { isEnabled }, "PUT");
     if (ok) window.location.reload();
-  }
-
-  function addSlot(date: string, weekday: number) {
-    setSlots((current) => [
-      ...current,
-      {
-        id: `${date}-${Date.now()}`,
-        date,
-        weekday,
-        startTime: "19:30",
-        endTime: "21:30",
-        isAvailable: true,
-        availableMinutes: 120,
-      },
-    ]);
-  }
-
-  function updateSlot(id: string, patch: Partial<Slot>) {
-    setSlots((current) => current.map((slot) => (slot.id === id ? { ...slot, ...patch } : slot)));
-  }
-
-  function removeSlot(id: string) {
-    setSlots((current) => current.filter((slot) => slot.id !== id));
   }
 
   return (
@@ -257,12 +279,12 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
                 力扣同步 {data.syncState.acceptedCount}/{data.syncState.checkedCount}
               </span>
               <button
-                onClick={generatePlan}
+                onClick={regeneratePlan}
                 disabled={Boolean(busy)}
                 className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
               >
                 <RefreshCw size={15} />
-                生成周计划
+                重新排题
               </button>
             </div>
           </div>
@@ -282,12 +304,10 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
           ) : null}
           {active === "weekly" ? (
             <WeeklyView
-              slots={slots}
-              plans={data.weekPlans}
-              setSlot={updateSlot}
-              addSlot={addSlot}
-              removeSlot={removeSlot}
-              generatePlan={generatePlan}
+              days={data.availability}
+              initialPlans={data.weekPlans}
+              onGenerate={generateWeekly}
+              busy={Boolean(busy)}
             />
           ) : null}
           {active === "problems" ? <ProblemsView data={data} onToggleEnabled={setProblemEnabled} /> : null}
@@ -323,141 +343,104 @@ function TodayView({
   onExclude: (problemId: string, planItemId?: string) => void;
   completion: number;
 }) {
-  const grouped = useMemo(() => groupItemsBySlot(data.todayPlan?.items ?? []), [data.todayPlan]);
+  const items = data.todayPlan?.items ?? [];
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-      <section className="min-w-0 space-y-5">
-        <MetricGrid data={data} completion={completion} />
-        <div className="flex justify-end">
-          <button
-            onClick={onAdd}
-            className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            <Plus size={15} />
-            添加一题
-          </button>
-        </div>
-        <Panel title="今日计划" action={data.todayPlan ? `${data.todayPlan.items.length} 项` : "未生成"}>
-          {grouped.length ? (
-            <div className="space-y-4">
-              {grouped.map((group) => (
-                <div key={group.key} className="rounded-md border border-slate-200">
-                  <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-                    <span className="font-medium">{group.label}</span>
-                    <span className="text-slate-500">{group.items.reduce((sum, item) => sum + item.estimatedMinutes, 0)}m</span>
-                  </div>
-                  <div className="divide-y divide-slate-100">
-                    {group.items.map((item) => (
-                      <TaskRow key={item.id} item={item} onMark={onMark} onRemove={onRemove} onExclude={onExclude} />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState text="还没有今日计划。去周计划页设置可用时段，然后生成计划。" />
-          )}
-        </Panel>
-      </section>
-      <aside className="space-y-5">
-        <ProgressPanel data={data} completion={completion} />
-        <Panel title="今日规则" action="无需手动计时">
-          <ul className="space-y-2 text-sm leading-6 text-slate-600">
-            <li>1. 点击“打开力扣”做题。</li>
-            <li>2. 做完后点“已处理”，用 0-5 分记录做题感觉。</li>
-            <li>3. 分数越高代表越不熟，系统会越快安排复习。</li>
-          </ul>
-        </Panel>
-      </aside>
+    <div className="space-y-5">
+      <MetricGrid data={data} completion={completion} />
+      <div className="flex justify-end">
+        <button
+          onClick={onAdd}
+          className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          <Plus size={15} />
+          添加一题
+        </button>
+      </div>
+      <Panel title="今日计划" action={data.todayPlan ? `${items.length} 题` : "未生成"}>
+        {items.length ? (
+          <div className="divide-y divide-slate-100">
+            {items.map((item) => (
+              <TaskRow key={item.id} item={item} onMark={onMark} onRemove={onRemove} onExclude={onExclude} />
+            ))}
+          </div>
+        ) : (
+          <EmptyState text="还没有今日计划。去周计划页设置每天题量，然后排题。" />
+        )}
+      </Panel>
     </div>
   );
 }
 
 function WeeklyView({
-  slots,
-  plans,
-  setSlot,
-  addSlot,
-  removeSlot,
-  generatePlan,
+  days,
+  initialPlans,
+  onGenerate,
+  busy,
 }: {
-  slots: Slot[];
-  plans: DashboardData["weekPlans"];
-  setSlot: (id: string, patch: Partial<Slot>) => void;
-  addSlot: (date: string, weekday: number) => void;
-  removeSlot: (id: string) => void;
-  generatePlan: () => void;
+  days: WeekDay[];
+  initialPlans: WeekPlans;
+  onGenerate: (counts: Record<string, number>) => Promise<WeekPlans | null>;
+  busy: boolean;
 }) {
-  const days = [...new Map(slots.map((slot) => [slot.date, slot])).values()].sort((a, b) =>
-    a.date.localeCompare(b.date),
-  );
+  const [plans, setPlans] = useState(initialPlans);
+  const [counts, setCounts] = useState<Record<string, number>>(() => {
+    const initial: Record<string, number> = {};
+    for (const day of days) {
+      const plan = initialPlans.find((item) => item.date === day.date);
+      initial[day.date] = plan ? plan.items.length : DEFAULT_DAILY_COUNT;
+    }
+    return initial;
+  });
   const plansByDate = new Map(plans.map((plan) => [plan.date, plan.items]));
 
+  async function changeCount(date: string, delta: number) {
+    const next = Math.max(0, Math.min(30, (counts[date] ?? 0) + delta));
+    const nextCounts = { ...counts, [date]: next };
+    setCounts(nextCounts);
+    const result = await onGenerate(nextCounts);
+    if (result) {
+      setPlans(result);
+    }
+  }
+
   return (
-    <section className="space-y-5">
-      <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+    <section className="space-y-4">
+      <p className="text-sm text-slate-500">
+        调整每天的题量，系统会按艾宾浩斯遗忘曲线（到期/逾期复习优先，其次新题）实时重新排题。
+      </p>
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
         {days.map((day) => (
           <div key={day.date} className="rounded-lg border border-slate-200 bg-white p-3">
-            <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2">
               <div className="flex items-baseline gap-2">
                 <span className="text-sm font-semibold">{weekdayLabels[day.weekday]}</span>
-                <span className="text-xs text-slate-500">{day.date}</span>
+                <span className="text-xs text-slate-500">{formatYmd(day.date)}</span>
               </div>
-              <button
-                onClick={() => addSlot(day.date, day.weekday)}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
-                title="添加时段"
-              >
-                <Plus size={14} />
-              </button>
-            </div>
-            <div className="space-y-2">
-              {slots
-                .filter((slot) => slot.date === day.date)
-                .sort((a, b) => a.startTime.localeCompare(b.startTime))
-                .map((slot) => (
-                  <div key={slot.id} className="rounded-md border border-slate-200 p-2.5">
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="time"
-                        value={slot.startTime}
-                        onChange={(event) => setSlot(slot.id, { startTime: event.target.value })}
-                        className="h-8 min-w-0 flex-1 rounded-md border border-slate-300 px-1.5 text-xs"
-                      />
-                      <span className="shrink-0 text-xs text-slate-400">至</span>
-                      <input
-                        type="time"
-                        value={slot.endTime}
-                        onChange={(event) => setSlot(slot.id, { endTime: event.target.value })}
-                        className="h-8 min-w-0 flex-1 rounded-md border border-slate-300 px-1.5 text-xs"
-                      />
-                      <button
-                        onClick={() => removeSlot(slot.id)}
-                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:border-red-200 hover:text-red-600"
-                        title="删除时段"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                    <label className="mt-2 flex items-center gap-2 text-xs text-slate-500">
-                      <input
-                        type="checkbox"
-                        checked={slot.isAvailable}
-                        onChange={(event) => setSlot(slot.id, { isAvailable: event.target.checked })}
-                      />
-                      可刷题
-                    </label>
-                  </div>
-                ))}
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => changeCount(day.date, -1)}
+                  disabled={busy || (counts[day.date] ?? 0) <= 0}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                  title="少一题"
+                >
+                  <Minus size={14} />
+                </button>
+                <span className="w-6 text-center text-sm font-semibold tabular-nums">{counts[day.date] ?? 0}</span>
+                <button
+                  onClick={() => changeCount(day.date, 1)}
+                  disabled={busy || (counts[day.date] ?? 0) >= 30}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                  title="多一题"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
             </div>
             <DayPlanList items={plansByDate.get(day.date) ?? []} />
           </div>
         ))}
       </div>
-      <button onClick={generatePlan} className="h-10 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700">
-        保存时段并生成周计划
-      </button>
     </section>
   );
 }
@@ -468,7 +451,7 @@ function DayPlanList({ items }: { items: DashboardData["weekPlans"][number]["ite
   return (
     <div className="mt-3 border-t border-slate-100 pt-3">
       <div className="mb-2 flex items-center justify-between text-xs">
-        <span className="font-medium text-slate-500">今日排题</span>
+        <span className="font-medium text-slate-500">安排题目</span>
         <span className="text-slate-400">{items.length ? `${items.length} 题 · ${totalMinutes}m` : "未排"}</span>
       </div>
       {items.length ? (
@@ -538,10 +521,65 @@ function ReviewsView({
 }
 
 function StatsView({ data, completion }: { data: DashboardData; completion: number }) {
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const scored = data.problems
+    .filter((problem) => problem.feelingSessionCount > 0 && problem.avgFeelingScore !== null)
+    .sort((a, b) => {
+      const diff = (a.avgFeelingScore ?? 0) - (b.avgFeelingScore ?? 0);
+      return sortDir === "asc" ? diff : -diff;
+    });
+
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <section className="space-y-5">
-        <MetricGrid data={data} completion={completion} />
+    <div className="space-y-5">
+      <MetricGrid data={data} completion={completion} />
+      <Panel title="做题反馈分数（每题平均分）" action={`${scored.length} 题`}>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-slate-500">分数越高代表越不熟（0 = 一次 AC，5 = 没思路）。点按钮切换升/降序。</p>
+          <button
+            onClick={() => setSortDir((dir) => (dir === "asc" ? "desc" : "asc"))}
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-300 px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <ArrowUpDown size={13} />
+            按平均分{sortDir === "asc" ? "升序" : "降序"}
+          </button>
+        </div>
+        {scored.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[520px] border-separate border-spacing-0 text-sm">
+              <thead>
+                <tr className="text-left text-xs text-slate-500">
+                  <th className="border-b border-slate-200 py-2 font-medium">题目</th>
+                  <th className="border-b border-slate-200 py-2 font-medium">难度</th>
+                  <th className="border-b border-slate-200 py-2 font-medium">平均分</th>
+                  <th className="border-b border-slate-200 py-2 font-medium">做题次数</th>
+                </tr>
+              </thead>
+              <tbody>
+                {scored.map((problem) => (
+                  <tr key={problem.id}>
+                    <td className="border-b border-slate-100 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-slate-400">#{problem.frontendId}</span>
+                        <a href={`/problems/${problem.id}`} className="font-medium hover:text-blue-600">
+                          {problem.titleCn}
+                        </a>
+                      </div>
+                    </td>
+                    <td className="border-b border-slate-100 py-2.5">
+                      <Badge className={difficultyClass[problem.difficulty]}>{problem.difficulty}</Badge>
+                    </td>
+                    <td className="border-b border-slate-100 py-2.5">{scorePill(problem.avgFeelingScore ?? 0)}</td>
+                    <td className="border-b border-slate-100 py-2.5 text-slate-600">{problem.feelingSessionCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState text="还没有带评分的做题记录。在今日任务里完成题目并打分后会出现在这里。" />
+        )}
+      </Panel>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <Panel title="标签覆盖">
           <div className="grid gap-3 md:grid-cols-2">
             {data.stats.byTag.map((tag) => (
@@ -557,10 +595,15 @@ function StatsView({ data, completion }: { data: DashboardData; completion: numb
             ))}
           </div>
         </Panel>
-      </section>
-      <ProgressPanel data={data} completion={completion} />
+        <ProgressPanel data={data} completion={completion} />
+      </div>
     </div>
   );
+}
+
+function scorePill(score: number) {
+  const tone = score < 1.5 ? "bg-emerald-50 text-emerald-700" : score < 3 ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700";
+  return <span className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${tone}`}>{score.toFixed(2)}</span>;
 }
 
 function SyncView({
@@ -861,9 +904,9 @@ function ProblemTable({
               <td className="border-b border-slate-100 py-3">{ratePill(problem.acceptedRate)}</td>
               <td className="border-b border-slate-100 py-3"><IconMetric icon={FileText} value={problem.noteCount} /></td>
               <td className="border-b border-slate-100 py-3"><IconMetric icon={Code2} value={problem.codeCount} /></td>
-              <td className="border-b border-slate-100 py-3 text-slate-600">{problem.lastAcceptedAt?.slice(0, 10) ?? "-"}</td>
+              <td className="border-b border-slate-100 py-3 text-slate-600">{formatYmd(problem.lastAcceptedAt)}</td>
               <td className="border-b border-slate-100 py-3">{riskPill(problem.reviewRiskScore)}</td>
-              <td className="border-b border-slate-100 py-3 text-slate-600">{problem.nextReviewDate ?? "-"}</td>
+              <td className="border-b border-slate-100 py-3 text-slate-600">{formatYmd(problem.nextReviewDate)}</td>
               <td className="border-b border-slate-100 py-3 text-xs text-slate-500">{problem.tags.split(",").slice(0, 3).join(" / ")}</td>
               <td className="border-b border-slate-100 py-3">
                 {disabled ? (
@@ -893,28 +936,15 @@ function ProblemTable({
   );
 }
 
-function groupItemsBySlot(items: NonNullable<DashboardData["todayPlan"]>["items"]) {
-  const map = new Map<string, { key: string; label: string; items: typeof items }>();
-
-  for (const item of items) {
-    const key = item.slot?.id ?? "unslotted";
-    const label = item.slot
-      ? `${weekdayLabels[item.slot.weekday]} ${item.slot.date} ${item.slot.startTime}-${item.slot.endTime}`
-      : "未绑定时段";
-    const group = map.get(key) ?? { key, label, items: [] };
-    group.items.push(item);
-    map.set(key, group);
-  }
-
-  return [...map.values()];
-}
-
 function MetricGrid({ data, completion }: { data: DashboardData; completion: number }) {
+  const todayCount = data.todayPlan?.items.length ?? 0;
+  const todayDone = data.todayPlan?.items.filter((item) => item.isCompleted).length ?? 0;
+
   return (
     <div className="grid gap-4 md:grid-cols-3">
       <Metric label="Hot100 完成" value={`${data.stats.accepted}/${data.stats.total}`} hint={`${completion}%`} />
       <Metric label="做题记录" value={`${data.stats.sessions}`} hint="累计 session" />
-      <Metric label="今日预算" value={`${data.todayPlan?.totalEstimatedMinutes ?? 0}m`} hint={`${data.todayPlan?.availableMinutes ?? 0}m 可用`} />
+      <Metric label="今日题量" value={`${todayDone}/${todayCount}`} hint="已处理 / 今日题数" />
     </div>
   );
 }
