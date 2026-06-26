@@ -49,7 +49,7 @@ const viewTitle: Record<ActiveView, { title: string; subtitle: string }> = {
   weekly: { title: "周计划", subtitle: "设置每天要完成的题量，系统按艾宾浩斯遗忘曲线实时排题。" },
   problems: { title: "Hot100 题库画像", subtitle: "用提交次数、AC 次数、正确率和复习风险判断每道题的状态。" },
   reviews: { title: "刷题计划", subtitle: "按 Hot100 分类管理：勾选不想刷的题或整类，未勾选的进入刷题列表。" },
-  stats: { title: "统计", subtitle: "查看整体进度、标签覆盖和复习节奏。" },
+  stats: { title: "统计", subtitle: "每道题的做题反馈平均分，可按分数升序或降序排序。" },
   sync: { title: "力扣同步", subtitle: "粘贴 leetcode.cn Cookie，同步 AC 状态、提交画像和最近代码。" },
 };
 
@@ -60,7 +60,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v0.7.0";
+const APP_VERSION = "v0.8.0";
 const APP_UPDATED = "2026-06-25";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -148,17 +148,6 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
     return payload.weekPlans;
   }
 
-  async function regeneratePlan() {
-    const counts: Record<string, number> = {};
-    for (const day of data.availability) {
-      counts[day.date] = DEFAULT_DAILY_COUNT;
-    }
-    for (const plan of data.weekPlans) {
-      counts[plan.date] = plan.items.length || DEFAULT_DAILY_COUNT;
-    }
-    const result = await generateWeekly(counts);
-    if (result) router.refresh();
-  }
 
   async function syncLeetCode() {
     const ok = await requestJson("/api/sync/leetcode-cn", { cookie, syncCode: true });
@@ -188,15 +177,6 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
       "PATCH",
     );
     if (ok) router.refresh();
-  }
-
-  async function excludeProblem(problemId: string, planItemId?: string) {
-    const ok = await requestJson(`/api/problems/${problemId}`, { isEnabled: false }, "PUT");
-    if (!ok) return;
-    if (planItemId) {
-      await requestJson(`/api/plan-items/${planItemId}`, undefined, "DELETE");
-    }
-    router.refresh();
   }
 
   async function setProblemEnabled(problemId: string, isEnabled: boolean) {
@@ -303,14 +283,6 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
                 <span className={`h-2 w-2 rounded-full ${data.syncState.status === "SUCCESS" ? "bg-emerald-500" : "bg-amber-500"}`} />
                 力扣同步 {data.syncState.acceptedCount}/{data.syncState.checkedCount}
               </span>
-              <button
-                onClick={regeneratePlan}
-                disabled={Boolean(busy)}
-                className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-btn-strong"
-              >
-                <RefreshCw size={15} />
-                重新排题
-              </button>
             </div>
           </div>
           {message ? <p className="mt-3 text-sm text-red-400">{message}</p> : null}
@@ -323,7 +295,6 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               onAdd={addTodayTask}
               onMark={markItem}
               onRemove={removeItem}
-              onExclude={excludeProblem}
               completion={completion}
             />
           ) : null}
@@ -331,6 +302,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
             <WeeklyView
               days={data.availability}
               initialPlans={data.weekPlans}
+              history={data.weekHistory}
               onGenerate={generateWeekly}
               busy={Boolean(busy)}
             />
@@ -354,7 +326,6 @@ function TodayView({
   onAdd,
   onMark,
   onRemove,
-  onExclude,
   completion,
 }: {
   data: DashboardData;
@@ -367,7 +338,6 @@ function TodayView({
     noteSyntax?: string,
   ) => void;
   onRemove: (id: string) => void;
-  onExclude: (problemId: string, planItemId?: string) => void;
   completion: number;
 }) {
   const items = data.todayPlan?.items ?? [];
@@ -394,7 +364,7 @@ function TodayView({
         {items.length ? (
           <div className="divide-y divide-line">
             {items.map((item) => (
-              <TaskRow key={item.id} item={item} onMark={onMark} onRemove={onRemove} onExclude={onExclude} />
+              <TaskRow key={item.id} item={item} onMark={onMark} onRemove={onRemove} />
             ))}
           </div>
         ) : (
@@ -410,11 +380,13 @@ function TodayView({
 function WeeklyView({
   days,
   initialPlans,
+  history,
   onGenerate,
   busy,
 }: {
   days: WeekDay[];
   initialPlans: WeekPlans;
+  history: DashboardData["weekHistory"];
   onGenerate: (counts: Record<string, number>) => Promise<WeekPlans | null>;
   busy: boolean;
 }) {
@@ -476,7 +448,77 @@ function WeeklyView({
           </div>
         ))}
       </div>
+
+      <div className="pt-2">
+        <h2 className="mb-1 text-sm font-semibold">本周做题记录</h2>
+        <p className="mb-3 text-xs text-fg-subtle">每天实际做了哪些题、当时的反馈分数和笔记，点开某天查看详情。</p>
+        <WeekHistoryBoard history={history} />
+      </div>
     </section>
+  );
+}
+
+function WeekHistoryBoard({ history }: { history: DashboardData["weekHistory"] }) {
+  const [openDate, setOpenDate] = useState<string | null>(history[0]?.date ?? null);
+
+  if (!history.length) {
+    return <p className="text-sm text-fg-subtle">最近还没有做题记录。完成今日任务并提交反馈后会出现在这里。</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {history.map((day) => {
+        const open = openDate === day.date;
+        const weekday = weekdayLabels[new Date(`${day.date}T00:00:00Z`).getUTCDay()];
+        return (
+          <div key={day.date} className="overflow-hidden rounded-lg border border-line bg-surface">
+            <button
+              onClick={() => setOpenDate(open ? null : day.date)}
+              className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+            >
+              <span className="flex items-center gap-2">
+                <ChevronDown size={16} className={`text-fg-subtle transition-transform ${open ? "" : "-rotate-90"}`} />
+                <span className="font-semibold">{weekday} {formatYmd(day.date)}</span>
+              </span>
+              <span className="text-xs text-fg-subtle">{day.items.length} 题</span>
+            </button>
+            {open ? (
+              <ul className="divide-y divide-line border-t border-line">
+                {day.items.map((entry, index) => (
+                  <li key={index} className="px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className={difficultyClass[entry.difficulty as keyof typeof difficultyClass]}>
+                        {difficultyCn[entry.difficulty as keyof typeof difficultyCn]}
+                      </Badge>
+                      <span className="font-mono text-xs text-fg-subtle">#{entry.frontendId}</span>
+                      <a href={`/problems/${entry.problemId}`} className="font-medium hover:text-blue-600 dark:hover:text-blue-400">
+                        {entry.titleCn}
+                      </a>
+                      <span className="text-xs text-fg-subtle">{kindLabel[entry.kind as keyof typeof kindLabel]}</span>
+                      {typeof entry.feelingScore === "number" ? (
+                        <span className="text-xs text-fg-subtle">· 反馈 {entry.feelingScore}/5</span>
+                      ) : null}
+                    </div>
+                    {entry.noteMarkdown ? (
+                      <div className="mt-2 text-xs">
+                        <div className="font-medium text-fg-muted">解题思路</div>
+                        <div className="mt-1 whitespace-pre-wrap leading-5 text-fg-muted">{entry.noteMarkdown}</div>
+                      </div>
+                    ) : null}
+                    {entry.noteSyntax ? (
+                      <div className="mt-2 text-xs">
+                        <div className="font-medium text-fg-muted">C++ 语法 / 知识点</div>
+                        <div className="mt-1 whitespace-pre-wrap leading-5 text-fg-muted">{entry.noteSyntax}</div>
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -652,7 +694,7 @@ function TopicsView({
   );
 }
 
-function StatsView({ data, completion }: { data: DashboardData; completion: number }) {
+function StatsView({ data }: { data: DashboardData; completion: number }) {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const scored = data.problems
     .filter((problem) => problem.feelingSessionCount > 0 && problem.avgFeelingScore !== null)
@@ -663,7 +705,6 @@ function StatsView({ data, completion }: { data: DashboardData; completion: numb
 
   return (
     <div className="space-y-5">
-      <MetricGrid data={data} completion={completion} />
       <Panel title="做题反馈分数（每题平均分）" action={`${scored.length} 题`}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-fg-subtle">分数越高代表越不熟（0 = 一次 AC，5 = 没思路）。点按钮切换升/降序。</p>
@@ -711,24 +752,6 @@ function StatsView({ data, completion }: { data: DashboardData; completion: numb
           <EmptyState text="还没有带评分的做题记录。在今日任务里完成题目并打分后会出现在这里。" />
         )}
       </Panel>
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Panel title="标签覆盖">
-          <div className="grid gap-3 md:grid-cols-2">
-            {data.stats.byTag.map((tag) => (
-              <div key={tag.tag}>
-                <div className="mb-1 flex justify-between text-sm text-fg-muted">
-                  <span>{tag.tag}</span>
-                  <span>{tag.accepted}/{tag.total}</span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full bg-blue-500" style={{ width: `${(tag.accepted / tag.total) * 100}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </Panel>
-        <ProgressPanel data={data} completion={completion} />
-      </div>
     </div>
   );
 }
@@ -784,14 +807,6 @@ function SyncView({
           <Info label="代码同步错误" value={data.syncState.lastCodeSyncError || "-"} />
         </dl>
       </Panel>
-      <Panel title="服务器自动同步" action="cron">
-        <p className="text-sm leading-6 text-fg-muted">
-          在服务器 `.env` 里配置 `SYNC_SECRET`，然后用定时任务每天调用这个接口。Cookie 过期时重新在本页粘贴一次即可，历史笔记和代码不会被清空。
-        </p>
-        <code className="mt-3 block overflow-x-auto rounded-md bg-slate-950 p-3 text-xs leading-6 text-slate-100">
-          curl -fsS -X POST &quot;https://你的域名/api/sync/leetcode-cn/cron?secret=你的_SYNC_SECRET&quot;
-        </code>
-      </Panel>
     </div>
   );
 }
@@ -803,7 +818,6 @@ function TaskRow({
   item,
   onMark,
   onRemove,
-  onExclude,
 }: {
   item: NonNullable<DashboardData["todayPlan"]>["items"][number];
   onMark: (
@@ -814,9 +828,9 @@ function TaskRow({
     noteSyntax?: string,
   ) => void;
   onRemove: (id: string) => void;
-  onExclude: (problemId: string, planItemId?: string) => void;
 }) {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [feelingScore, setFeelingScore] = useState<number | null>(item.session?.feelingScore ?? null);
   const [reviewAfterDays, setReviewAfterDays] = useState(item.session?.reviewAfterDays ?? 7);
   const [noteMarkdown, setNoteMarkdown] = useState(item.session?.noteMarkdown ?? "");
@@ -833,7 +847,10 @@ function TaskRow({
     }
 
     onMark(item.id, feelingScore, reviewAfterDays, noteMarkdown, noteSyntax);
+    setFeedbackOpen(false);
   }
+
+  const history = item.history ?? [];
 
   return (
     <div>
@@ -910,6 +927,44 @@ function TaskRow({
               <X size={15} />
             </button>
           </div>
+          {history.length ? (
+            <div className="mt-3 rounded-md border border-line bg-surface">
+              <button
+                onClick={() => setHistoryOpen((open) => !open)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-fg-muted"
+              >
+                <ChevronDown size={14} className={`transition-transform ${historyOpen ? "" : "-rotate-90"}`} />
+                以前做这道题的笔记（{history.length} 次）
+              </button>
+              {historyOpen ? (
+                <div className="space-y-2 px-3 pb-3">
+                  {history.map((entry, index) => (
+                    <div key={index} className="rounded-md border border-line bg-muted p-3 text-xs">
+                      <div className="flex items-center gap-2 text-fg-subtle">
+                        <span>{entry.completedAt.slice(0, 10)}</span>
+                        {typeof entry.feelingScore === "number" ? <span>· 反馈 {entry.feelingScore}/5</span> : null}
+                      </div>
+                      {entry.noteMarkdown ? (
+                        <div className="mt-2">
+                          <div className="font-medium text-fg-muted">解题思路</div>
+                          <div className="mt-1 whitespace-pre-wrap leading-5 text-fg-muted">{entry.noteMarkdown}</div>
+                        </div>
+                      ) : null}
+                      {entry.noteSyntax ? (
+                        <div className="mt-2">
+                          <div className="font-medium text-fg-muted">C++ 语法 / 知识点</div>
+                          <div className="mt-1 whitespace-pre-wrap leading-5 text-fg-muted">{entry.noteSyntax}</div>
+                        </div>
+                      ) : null}
+                      {!entry.noteMarkdown && !entry.noteSyntax ? (
+                        <p className="mt-1 text-fg-subtle">这次没有写笔记。</p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div className="mt-4 grid grid-cols-6 gap-2">
             {feelingLabels.map((label, score) => (
               <button
@@ -948,7 +1003,7 @@ function TaskRow({
                 value={noteMarkdown}
                 onChange={(event) => setNoteMarkdown(event.target.value)}
                 placeholder="这道题的思路、卡点、错因、下次复习要注意的点（支持 Markdown）"
-                className="mt-2 min-h-32 w-full resize-y rounded-md border border-line-strong bg-surface p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
+                className="mt-2 min-h-[28rem] w-full resize-y rounded-md border border-line-strong bg-surface p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
               />
             </label>
             <label className="text-sm text-fg-muted">
@@ -959,19 +1014,11 @@ function TaskRow({
                 value={noteSyntax}
                 onChange={(event) => setNoteSyntax(event.target.value)}
                 placeholder="C++ 语法、STL 成员函数用法、容器/迭代器等基础知识点，方便后续整理复习"
-                className="mt-2 min-h-32 w-full resize-y rounded-md border border-line-strong bg-surface p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
+                className="mt-2 min-h-[28rem] w-full resize-y rounded-md border border-line-strong bg-surface p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
               />
             </label>
           </div>
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <button
-              onClick={() => onExclude(item.problem.id, item.id)}
-              className="inline-flex h-9 items-center gap-1 whitespace-nowrap rounded-md border border-line px-3 text-sm font-medium text-fg-subtle hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-500/30 dark:hover:bg-red-500/15 dark:hover:text-red-400"
-              title="标记为不会考的题，之后不再安排复习（历史笔记保留）"
-            >
-              <Trash2 size={14} />
-              这题不会考，不再复习
-            </button>
+          <div className="mt-3 flex justify-end">
             <button
               onClick={submitFeedback}
               disabled={feelingScore === null}
@@ -1071,41 +1118,25 @@ function ProblemTable({
   );
 }
 
-function MetricGrid({ data, completion }: { data: DashboardData; completion: number }) {
+function MetricGrid({ data }: { data: DashboardData; completion: number }) {
   const todayCount = data.todayPlan?.items.length ?? 0;
   const todayDone = data.todayPlan?.items.filter((item) => item.isCompleted).length ?? 0;
+  const weekTarget = data.weekPlans.reduce((sum, plan) => sum + plan.items.length, 0);
+  const weekDone = data.weekPlans.reduce(
+    (sum, plan) => sum + plan.items.filter((item) => item.isCompleted).length,
+    0,
+  );
+  const weekPct = weekTarget ? Math.round((weekDone / weekTarget) * 100) : 0;
 
   return (
     <div className="grid gap-4 md:grid-cols-3">
-      <Metric label="Hot100 完成" value={`${data.stats.accepted}/${data.stats.total}`} hint={`${completion}%`} />
+      <Metric label="本周进度" value={`${weekDone}/${weekTarget}`} hint={`${weekPct}% · 本周目标题数`} />
       <Metric label="做题记录" value={`${data.stats.sessions}`} hint="累计 session" />
       <Metric label="今日题量" value={`${todayDone}/${todayCount}`} hint="已处理 / 今日题数" />
     </div>
   );
 }
 
-function ProgressPanel({ data, completion }: { data: DashboardData; completion: number }) {
-  return (
-    <Panel title="掌握度" action={`${completion}%`}>
-      <div className="h-2 overflow-hidden rounded-full bg-muted">
-        <div className="h-full bg-emerald-500" style={{ width: `${completion}%` }} />
-      </div>
-      <div className="mt-4 space-y-3">
-        {data.stats.byTag.map((tag) => (
-          <div key={tag.tag}>
-            <div className="mb-1 flex justify-between text-xs text-fg-subtle">
-              <span>{tag.tag}</span>
-              <span>{tag.accepted}/{tag.total}</span>
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-              <div className="h-full bg-blue-500" style={{ width: `${(tag.accepted / tag.total) * 100}%` }} />
-            </div>
-          </div>
-        ))}
-      </div>
-    </Panel>
-  );
-}
 
 function Metric({ label, value, hint, tone = "default" }: { label: string; value: string; hint: string; tone?: "default" | "warning" }) {
   return (

@@ -127,11 +127,45 @@ export async function getDashboardData() {
       })
     : [];
   const latestSessionByProblem = new Map<string, (typeof latestSessions)[number]>();
+  const sessionsByProblem = new Map<string, typeof latestSessions>();
   for (const session of latestSessions) {
     if (!latestSessionByProblem.has(session.problemId)) {
       latestSessionByProblem.set(session.problemId, session);
     }
+    const list = sessionsByProblem.get(session.problemId) ?? [];
+    list.push(session);
+    sessionsByProblem.set(session.problemId, list);
   }
+
+  // Recent study sessions grouped by day for the weekly history board.
+  const recentSessions = await db.studySession.findMany({
+    where: { completedAt: { gte: addUtcDays(today, -13) } },
+    orderBy: { completedAt: "desc" },
+    include: { problem: { select: { id: true, frontendId: true, titleCn: true, difficulty: true } } },
+  });
+  const weekHistoryMap = new Map<
+    string,
+    { problemId: string; frontendId: number; titleCn: string; difficulty: string; kind: string; feelingScore: number | null; noteMarkdown: string; noteSyntax: string; completedAt: string }[]
+  >();
+  for (const session of recentSessions) {
+    const key = toDateKey(session.completedAt);
+    const list = weekHistoryMap.get(key) ?? [];
+    list.push({
+      problemId: session.problemId,
+      frontendId: session.problem.frontendId,
+      titleCn: session.problem.titleCn,
+      difficulty: session.problem.difficulty,
+      kind: session.kind,
+      feelingScore: session.feelingScore,
+      noteMarkdown: session.noteMarkdown,
+      noteSyntax: session.noteSyntax,
+      completedAt: session.completedAt.toISOString(),
+    });
+    weekHistoryMap.set(key, list);
+  }
+  const weekHistory = [...weekHistoryMap.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([date, items]) => ({ date, items }));
 
   const availability = upcomingDates.map((date) => {
     const row = availabilityRows.find((item) => toDateKey(item.date) === toDateKey(date));
@@ -196,6 +230,12 @@ export async function getDashboardData() {
                   noteSyntax: session.noteSyntax,
                 }
               : null,
+            history: (sessionsByProblem.get(item.problemId) ?? []).map((entry) => ({
+              completedAt: entry.completedAt.toISOString(),
+              feelingScore: entry.feelingScore,
+              noteMarkdown: entry.noteMarkdown,
+              noteSyntax: entry.noteSyntax,
+            })),
             slot: item.availabilitySlot
               ? {
                   id: item.availabilitySlot.id,
@@ -241,6 +281,7 @@ export async function getDashboardData() {
         },
       })),
     })),
+    weekHistory,
     availability,
     slots,
     problems: problems.map((problem) => ({
