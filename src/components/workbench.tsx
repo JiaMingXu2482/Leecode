@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  AlertTriangle,
   ArrowUpDown,
   BarChart3,
   BookOpen,
@@ -17,6 +16,7 @@ import {
   LogOut,
   Minus,
   Moon,
+  NotebookPen,
   PanelLeft,
   Plus,
   RefreshCw,
@@ -31,14 +31,14 @@ import { useState } from "react";
 import type { DashboardData } from "@/lib/dashboard-data";
 import { TOPIC_GROUPS } from "@/lib/topics";
 
-type ActiveView = "today" | "weekly" | "problems" | "reviews" | "stats" | "sync";
+type ActiveView = "today" | "weekly" | "history" | "reviews" | "stats" | "sync";
 type WeekDay = DashboardData["availability"][number];
 type WeekPlans = DashboardData["weekPlans"];
 
 const navItems: { href: string; key: ActiveView; label: string; icon: typeof Target }[] = [
   { href: "/today", key: "today", label: "今日任务", icon: Target },
   { href: "/weekly", key: "weekly", label: "周计划", icon: CalendarDays },
-  { href: "/problems", key: "problems", label: "题库画像", icon: BookOpen },
+  { href: "/history", key: "history", label: "历史笔记", icon: NotebookPen },
   { href: "/reviews", key: "reviews", label: "刷题计划", icon: ListChecks },
   { href: "/stats", key: "stats", label: "统计", icon: DatabaseZap },
   { href: "/settings/sync", key: "sync", label: "力扣同步", icon: Settings2 },
@@ -47,7 +47,7 @@ const navItems: { href: string; key: ActiveView; label: string; icon: typeof Tar
 const viewTitle: Record<ActiveView, { title: string; subtitle: string }> = {
   today: { title: "今日任务", subtitle: "只看今天要处理的题目，打开力扣后做题，完成后标记已处理即可。" },
   weekly: { title: "周计划", subtitle: "设置每天要完成的题量，系统按艾宾浩斯遗忘曲线实时排题。" },
-  problems: { title: "Hot100 题库画像", subtitle: "用提交次数、AC 次数、正确率和复习风险判断每道题的状态。" },
+  history: { title: "历史笔记", subtitle: "按天回顾做过的题、当时的反馈分数和笔记（解题思路 / C++ 语法分两栏）。" },
   reviews: { title: "刷题计划", subtitle: "按 Hot100 分类管理：勾选不想刷的题或整类，未勾选的进入刷题列表。" },
   stats: { title: "统计", subtitle: "每道题的做题反馈平均分，可按分数升序或降序排序。" },
   sync: { title: "力扣同步", subtitle: "粘贴 leetcode.cn Cookie，同步 AC 状态、提交画像和最近代码。" },
@@ -60,7 +60,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v0.8.0";
+const APP_VERSION = "v0.9.0";
 const APP_UPDATED = "2026-06-25";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -307,7 +307,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               busy={Boolean(busy)}
             />
           ) : null}
-          {active === "problems" ? <ProblemsView data={data} onToggleEnabled={setProblemEnabled} /> : null}
+          {active === "history" ? <HistoryView data={data} /> : null}
           {active === "reviews" ? (
             <TopicsView data={data} onToggleEnabled={setProblemEnabled} onBulkToggle={bulkSetEnabled} />
           ) : null}
@@ -400,6 +400,8 @@ function WeeklyView({
     return initial;
   });
   const plansByDate = new Map(plans.map((plan) => [plan.date, plan.items]));
+  const todayKey = days[0]?.date ?? "";
+  const pastDays = history.filter((day) => day.date < todayKey);
 
   async function changeCount(date: string, delta: number) {
     const next = Math.max(0, Math.min(30, (counts[date] ?? 0) + delta));
@@ -447,74 +449,101 @@ function WeeklyView({
             <DayPlanList items={plansByDate.get(day.date) ?? []} />
           </div>
         ))}
-      </div>
-
-      <div className="pt-2">
-        <h2 className="mb-1 text-sm font-semibold">本周做题记录</h2>
-        <p className="mb-3 text-xs text-fg-subtle">每天实际做了哪些题、当时的反馈分数和笔记，点开某天查看详情。</p>
-        <WeekHistoryBoard history={history} />
+        {pastDays.map((day) => {
+          const weekday = weekdayLabels[new Date(`${day.date}T00:00:00Z`).getUTCDay()];
+          return (
+            <div key={day.date} className="rounded-lg border border-line bg-surface p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm font-semibold">{weekday}</span>
+                  <span className="text-xs text-fg-subtle">{formatYmd(day.date)}</span>
+                </div>
+                <span className="text-xs text-fg-subtle">已做 {day.items.length}</span>
+              </div>
+              <ul className="mt-3 space-y-1.5">
+                {day.items.map((entry, index) => (
+                  <li key={index}>
+                    <a
+                      href={`/problems/${entry.problemId}`}
+                      className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-muted"
+                      title="查看这道题的历史笔记"
+                    >
+                      <span className="font-mono text-[11px] text-fg-subtle">#{entry.frontendId}</span>
+                      <span className="min-w-0 flex-1 truncate text-xs text-fg">{entry.titleCn}</span>
+                      {typeof entry.feelingScore === "number" ? (
+                        <span className="shrink-0 text-[10px] text-fg-subtle">{entry.feelingScore}/5</span>
+                      ) : null}
+                      <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${difficultyClass[entry.difficulty as keyof typeof difficultyClass]}`}>
+                        {difficultyCn[entry.difficulty as keyof typeof difficultyCn]}
+                      </span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
 }
 
-function WeekHistoryBoard({ history }: { history: DashboardData["weekHistory"] }) {
-  const [openDate, setOpenDate] = useState<string | null>(history[0]?.date ?? null);
+function HistoryView({ data }: { data: DashboardData }) {
+  const history = data.weekHistory;
 
   if (!history.length) {
-    return <p className="text-sm text-fg-subtle">最近还没有做题记录。完成今日任务并提交反馈后会出现在这里。</p>;
+    return (
+      <EmptyState text="还没有做题记录。在今日任务里完成题目并提交反馈后，会按天出现在这里。" />
+    );
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-5">
       {history.map((day) => {
-        const open = openDate === day.date;
         const weekday = weekdayLabels[new Date(`${day.date}T00:00:00Z`).getUTCDay()];
         return (
-          <div key={day.date} className="overflow-hidden rounded-lg border border-line bg-surface">
-            <button
-              onClick={() => setOpenDate(open ? null : day.date)}
-              className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
-            >
-              <span className="flex items-center gap-2">
-                <ChevronDown size={16} className={`text-fg-subtle transition-transform ${open ? "" : "-rotate-90"}`} />
-                <span className="font-semibold">{weekday} {formatYmd(day.date)}</span>
-              </span>
+          <div key={day.date}>
+            <div className="mb-2 flex items-baseline gap-2">
+              <h2 className="text-sm font-semibold">{weekday} {formatYmd(day.date)}</h2>
               <span className="text-xs text-fg-subtle">{day.items.length} 题</span>
-            </button>
-            {open ? (
-              <ul className="divide-y divide-line border-t border-line">
-                {day.items.map((entry, index) => (
-                  <li key={index} className="px-4 py-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge className={difficultyClass[entry.difficulty as keyof typeof difficultyClass]}>
-                        {difficultyCn[entry.difficulty as keyof typeof difficultyCn]}
-                      </Badge>
-                      <span className="font-mono text-xs text-fg-subtle">#{entry.frontendId}</span>
-                      <a href={`/problems/${entry.problemId}`} className="font-medium hover:text-blue-600 dark:hover:text-blue-400">
-                        {entry.titleCn}
-                      </a>
-                      <span className="text-xs text-fg-subtle">{kindLabel[entry.kind as keyof typeof kindLabel]}</span>
-                      {typeof entry.feelingScore === "number" ? (
-                        <span className="text-xs text-fg-subtle">· 反馈 {entry.feelingScore}/5</span>
-                      ) : null}
+            </div>
+            <div className="space-y-3">
+              {day.items.map((entry, index) => (
+                <div key={index} className="rounded-lg border border-line bg-surface p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className={difficultyClass[entry.difficulty as keyof typeof difficultyClass]}>
+                      {difficultyCn[entry.difficulty as keyof typeof difficultyCn]}
+                    </Badge>
+                    <span className="font-mono text-xs text-fg-subtle">#{entry.frontendId}</span>
+                    <a href={`/problems/${entry.problemId}`} className="font-medium hover:text-blue-600 dark:hover:text-blue-400">
+                      {entry.titleCn}
+                    </a>
+                    <span className="text-xs text-fg-subtle">{kindLabel[entry.kind as keyof typeof kindLabel]}</span>
+                    {typeof entry.feelingScore === "number" ? (
+                      <span className="text-xs text-fg-subtle">· 反馈 {entry.feelingScore}/5</span>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                    <div>
+                      <div className="inline-flex items-center gap-1 text-xs font-medium text-fg">
+                        <BookOpen size={13} /> 解题思路
+                      </div>
+                      <div className="mt-1 min-h-12 whitespace-pre-wrap rounded-md border border-line bg-muted p-3 text-xs leading-5 text-fg-muted">
+                        {entry.noteMarkdown || "—"}
+                      </div>
                     </div>
-                    {entry.noteMarkdown ? (
-                      <div className="mt-2 text-xs">
-                        <div className="font-medium text-fg-muted">解题思路</div>
-                        <div className="mt-1 whitespace-pre-wrap leading-5 text-fg-muted">{entry.noteMarkdown}</div>
+                    <div>
+                      <div className="inline-flex items-center gap-1 text-xs font-medium text-fg">
+                        <Code2 size={13} /> C++ 语法 / 知识点
                       </div>
-                    ) : null}
-                    {entry.noteSyntax ? (
-                      <div className="mt-2 text-xs">
-                        <div className="font-medium text-fg-muted">C++ 语法 / 知识点</div>
-                        <div className="mt-1 whitespace-pre-wrap leading-5 text-fg-muted">{entry.noteSyntax}</div>
+                      <div className="mt-1 min-h-12 whitespace-pre-wrap rounded-md border border-line bg-muted p-3 text-xs leading-5 text-fg-muted">
+                        {entry.noteSyntax || "—"}
                       </div>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         );
       })}
@@ -536,10 +565,9 @@ function DayPlanList({ items }: { items: DashboardData["weekPlans"][number]["ite
           {items.map((item) => (
             <li key={item.id}>
               <a
-                href={item.problem.leetcodeCnUrl}
-                target="_blank"
+                href={`/problems/${item.problem.id}`}
                 className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-muted"
-                title={item.problem.titleCn}
+                title="查看这道题的历史笔记"
               >
                 <span className="font-mono text-[11px] text-fg-subtle">#{item.problem.frontendId}</span>
                 <span
@@ -565,19 +593,6 @@ function DayPlanList({ items }: { items: DashboardData["weekPlans"][number]["ite
   );
 }
 
-function ProblemsView({
-  data,
-  onToggleEnabled,
-}: {
-  data: DashboardData;
-  onToggleEnabled: (problemId: string, isEnabled: boolean) => void;
-}) {
-  return (
-    <Panel title="题库画像" action={`${data.problems.length} 题`}>
-      <ProblemTable problems={data.problems} onToggleEnabled={onToggleEnabled} />
-    </Panel>
-  );
-}
 
 const difficultyCn = { EASY: "简单", MEDIUM: "中等", HARD: "困难" };
 
@@ -830,7 +845,6 @@ function TaskRow({
   onRemove: (id: string) => void;
 }) {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [feelingScore, setFeelingScore] = useState<number | null>(item.session?.feelingScore ?? null);
   const [reviewAfterDays, setReviewAfterDays] = useState(item.session?.reviewAfterDays ?? 7);
   const [noteMarkdown, setNoteMarkdown] = useState(item.session?.noteMarkdown ?? "");
@@ -849,8 +863,6 @@ function TaskRow({
     onMark(item.id, feelingScore, reviewAfterDays, noteMarkdown, noteSyntax);
     setFeedbackOpen(false);
   }
-
-  const history = item.history ?? [];
 
   return (
     <div>
@@ -919,52 +931,24 @@ function TaskRow({
               <div className="text-sm font-medium text-fg">做题感觉{item.isCompleted ? "（编辑）" : ""}</div>
               <div className="mt-1 text-xs text-fg-subtle">0 表示一次 AC，5 表示完全没思路。</div>
             </div>
-            <button
-              onClick={() => setFeedbackOpen(false)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-fg-subtle hover:bg-surface"
-              title="关闭"
-            >
-              <X size={15} />
-            </button>
-          </div>
-          {history.length ? (
-            <div className="mt-3 rounded-md border border-line bg-surface">
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => setHistoryOpen((open) => !open)}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-fg-muted"
+                onClick={submitFeedback}
+                disabled={feelingScore === null}
+                className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-btn-strong"
               >
-                <ChevronDown size={14} className={`transition-transform ${historyOpen ? "" : "-rotate-90"}`} />
-                以前做这道题的笔记（{history.length} 次）
+                <Check size={15} />
+                {item.isCompleted ? "更新反馈" : "提交反馈"}
               </button>
-              {historyOpen ? (
-                <div className="space-y-2 px-3 pb-3">
-                  {history.map((entry, index) => (
-                    <div key={index} className="rounded-md border border-line bg-muted p-3 text-xs">
-                      <div className="flex items-center gap-2 text-fg-subtle">
-                        <span>{entry.completedAt.slice(0, 10)}</span>
-                        {typeof entry.feelingScore === "number" ? <span>· 反馈 {entry.feelingScore}/5</span> : null}
-                      </div>
-                      {entry.noteMarkdown ? (
-                        <div className="mt-2">
-                          <div className="font-medium text-fg-muted">解题思路</div>
-                          <div className="mt-1 whitespace-pre-wrap leading-5 text-fg-muted">{entry.noteMarkdown}</div>
-                        </div>
-                      ) : null}
-                      {entry.noteSyntax ? (
-                        <div className="mt-2">
-                          <div className="font-medium text-fg-muted">C++ 语法 / 知识点</div>
-                          <div className="mt-1 whitespace-pre-wrap leading-5 text-fg-muted">{entry.noteSyntax}</div>
-                        </div>
-                      ) : null}
-                      {!entry.noteMarkdown && !entry.noteSyntax ? (
-                        <p className="mt-1 text-fg-subtle">这次没有写笔记。</p>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+              <button
+                onClick={() => setFeedbackOpen(false)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-fg-subtle hover:bg-surface"
+                title="关闭"
+              >
+                <X size={15} />
+              </button>
             </div>
-          ) : null}
+          </div>
           <div className="mt-4 grid grid-cols-6 gap-2">
             {feelingLabels.map((label, score) => (
               <button
@@ -1018,102 +1002,8 @@ function TaskRow({
               />
             </label>
           </div>
-          <div className="mt-3 flex justify-end">
-            <button
-              onClick={submitFeedback}
-              disabled={feelingScore === null}
-              className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-btn-strong"
-            >
-              <Check size={15} />
-              {item.isCompleted ? "更新反馈" : "提交反馈"}
-            </button>
-          </div>
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function ProblemTable({
-  problems,
-  onToggleEnabled,
-}: {
-  problems: DashboardData["problems"];
-  onToggleEnabled: (problemId: string, isEnabled: boolean) => void;
-}) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[1040px] border-separate border-spacing-0 text-sm">
-        <thead>
-          <tr className="text-left text-xs text-fg-subtle">
-            <th className="border-b border-line py-2 font-medium">题目</th>
-            <th className="border-b border-line py-2 font-medium">难度</th>
-            <th className="border-b border-line py-2 font-medium">提交</th>
-            <th className="border-b border-line py-2 font-medium">AC</th>
-            <th className="border-b border-line py-2 font-medium">正确率</th>
-            <th className="border-b border-line py-2 font-medium">笔记</th>
-            <th className="border-b border-line py-2 font-medium">代码</th>
-            <th className="border-b border-line py-2 font-medium">最近 AC</th>
-            <th className="border-b border-line py-2 font-medium">复习风险</th>
-            <th className="border-b border-line py-2 font-medium">下次复习</th>
-            <th className="border-b border-line py-2 font-medium">标签</th>
-            <th className="border-b border-line py-2 font-medium">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {problems.map((problem) => {
-            const disabled = problem.isEnabled === false;
-
-            return (
-            <tr key={problem.id} className={disabled ? "opacity-50" : undefined}>
-              <td className="border-b border-line py-3">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs text-fg-subtle">#{problem.frontendId}</span>
-                  <a href={`/problems/${problem.id}`} className="font-medium hover:text-blue-400">
-                    {problem.titleCn}
-                  </a>
-                  <a href={problem.leetcodeCnUrl} target="_blank" className="text-fg-subtle hover:text-blue-400" title="打开力扣">
-                    <ExternalLink size={13} />
-                  </a>
-                  {disabled ? (
-                    <span className="inline-flex rounded border border-line bg-muted px-1.5 py-0.5 text-[11px] font-medium text-fg-subtle">已移除</span>
-                  ) : null}
-                </div>
-              </td>
-              <td className="border-b border-line py-3"><Badge className={difficultyClass[problem.difficulty]}>{problem.difficulty}</Badge></td>
-              <td className="border-b border-line py-3"><IconMetric icon={RefreshCw} value={problem.totalSubmissions} /></td>
-              <td className="border-b border-line py-3"><IconMetric icon={Check} value={problem.acceptedSubmissions} /></td>
-              <td className="border-b border-line py-3">{ratePill(problem.acceptedRate)}</td>
-              <td className="border-b border-line py-3"><IconMetric icon={FileText} value={problem.noteCount} /></td>
-              <td className="border-b border-line py-3"><IconMetric icon={Code2} value={problem.codeCount} /></td>
-              <td className="border-b border-line py-3 text-fg-muted">{formatYmd(problem.lastAcceptedAt)}</td>
-              <td className="border-b border-line py-3">{riskPill(problem.reviewRiskScore)}</td>
-              <td className="border-b border-line py-3 text-fg-muted">{formatYmd(problem.nextReviewDate)}</td>
-              <td className="border-b border-line py-3 text-xs text-fg-subtle">{problem.tags.split(",").slice(0, 3).join(" / ")}</td>
-              <td className="border-b border-line py-3">
-                {disabled ? (
-                  <button
-                    onClick={() => onToggleEnabled(problem.id, true)}
-                    className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md border border-line-strong px-2 text-xs font-medium text-fg-muted hover:bg-muted"
-                    title="恢复复习这道题"
-                  >
-                    <RefreshCw size={13} /> 恢复
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => onToggleEnabled(problem.id, false)}
-                    className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-md border border-line px-2 text-xs font-medium text-fg-subtle hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-500/30 dark:hover:bg-red-500/15 dark:hover:text-red-400"
-                    title="不再复习这道题（历史笔记保留）"
-                  >
-                    <Trash2 size={13} /> 移除
-                  </button>
-                )}
-              </td>
-            </tr>
-            );
-          })}
-        </tbody>
-      </table>
     </div>
   );
 }
@@ -1167,32 +1057,6 @@ function Panel({ title, action, children }: { title: string; action?: string; ch
 
 function Badge({ className, children }: { className: string; children: React.ReactNode }) {
   return <span className={`inline-flex rounded border px-1.5 py-0.5 text-[11px] font-semibold ${className}`}>{children}</span>;
-}
-
-function IconMetric({ icon: Icon, value }: { icon: typeof RefreshCw; value: number }) {
-  return <span className="inline-flex items-center gap-1 text-fg"><Icon size={14} /> {value}</span>;
-}
-
-function ratePill(rate: number) {
-  const tone =
-    rate === 0
-      ? "bg-muted text-fg-subtle"
-      : rate < 50
-        ? "bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300"
-        : rate < 75
-          ? "bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
-          : "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300";
-  return <span className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${tone}`}>{rate}%</span>;
-}
-
-function riskPill(score: number) {
-  const tone =
-    score >= 70
-      ? "bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300"
-      : score >= 40
-        ? "bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
-        : "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300";
-  return <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${tone}`}><AlertTriangle size={13} /> {score}</span>;
 }
 
 function Info({ label, value }: { label: string; value: string }) {
