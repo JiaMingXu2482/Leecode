@@ -27,7 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { type KeyboardEvent, useState } from "react";
 import type { DashboardData } from "@/lib/dashboard-data";
 import { TOPIC_GROUPS } from "@/lib/topics";
 
@@ -60,9 +60,45 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v0.9.0";
+const APP_VERSION = "v1.0.0";
 const APP_UPDATED = "2026-06-25";
 const DEFAULT_DAILY_COUNT = 3;
+
+function handleNoteTab(
+  event: KeyboardEvent<HTMLTextAreaElement>,
+  value: string,
+  setValue: (next: string) => void,
+) {
+  if (event.key !== "Tab") {
+    return;
+  }
+  event.preventDefault();
+  const textarea = event.currentTarget;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const indent = "    ";
+
+  if (event.shiftKey) {
+    // Dedent: drop up to 4 spaces just before the cursor.
+    const before = value.slice(0, start);
+    const removed = before.match(/ {1,4}$/)?.[0] ?? "";
+    if (!removed) {
+      return;
+    }
+    const next = value.slice(0, start - removed.length) + value.slice(start);
+    setValue(next);
+    requestAnimationFrame(() => {
+      textarea.selectionStart = textarea.selectionEnd = start - removed.length;
+    });
+    return;
+  }
+
+  const next = value.slice(0, start) + indent + value.slice(end);
+  setValue(next);
+  requestAnimationFrame(() => {
+    textarea.selectionStart = textarea.selectionEnd = start + indent.length;
+  });
+}
 
 function formatYmd(value?: string | null) {
   if (!value) {
@@ -507,46 +543,68 @@ function HistoryView({ data }: { data: DashboardData }) {
               <h2 className="text-sm font-semibold">{weekday} {formatYmd(day.date)}</h2>
               <span className="text-xs text-fg-subtle">{day.items.length} 题</span>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {day.items.map((entry, index) => (
-                <div key={index} className="rounded-lg border border-line bg-surface p-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className={difficultyClass[entry.difficulty as keyof typeof difficultyClass]}>
-                      {difficultyCn[entry.difficulty as keyof typeof difficultyCn]}
-                    </Badge>
-                    <span className="font-mono text-xs text-fg-subtle">#{entry.frontendId}</span>
-                    <a href={`/problems/${entry.problemId}`} className="font-medium hover:text-blue-600 dark:hover:text-blue-400">
-                      {entry.titleCn}
-                    </a>
-                    <span className="text-xs text-fg-subtle">{kindLabel[entry.kind as keyof typeof kindLabel]}</span>
-                    {typeof entry.feelingScore === "number" ? (
-                      <span className="text-xs text-fg-subtle">· 反馈 {entry.feelingScore}/5</span>
-                    ) : null}
-                  </div>
-                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                    <div>
-                      <div className="inline-flex items-center gap-1 text-xs font-medium text-fg">
-                        <BookOpen size={13} /> 解题思路
-                      </div>
-                      <div className="mt-1 min-h-12 whitespace-pre-wrap rounded-md border border-line bg-muted p-3 text-xs leading-5 text-fg-muted">
-                        {entry.noteMarkdown || "—"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="inline-flex items-center gap-1 text-xs font-medium text-fg">
-                        <Code2 size={13} /> C++ 语法 / 知识点
-                      </div>
-                      <div className="mt-1 min-h-12 whitespace-pre-wrap rounded-md border border-line bg-muted p-3 text-xs leading-5 text-fg-muted">
-                        {entry.noteSyntax || "—"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <HistoryEntry key={index} entry={entry} />
               ))}
             </div>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function HistoryEntry({ entry }: { entry: DashboardData["weekHistory"][number]["items"][number] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-line bg-surface">
+      <button
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left"
+      >
+        <ChevronDown size={16} className={`shrink-0 text-fg-subtle transition-transform ${open ? "" : "-rotate-90"}`} />
+        <Badge className={difficultyClass[entry.difficulty as keyof typeof difficultyClass]}>
+          {difficultyCn[entry.difficulty as keyof typeof difficultyCn]}
+        </Badge>
+        <span className="font-mono text-xs text-fg-subtle">#{entry.frontendId}</span>
+        <span className="min-w-0 flex-1 truncate font-medium">{entry.titleCn}</span>
+        <span className="shrink-0 text-xs text-fg-subtle">{kindLabel[entry.kind as keyof typeof kindLabel]}</span>
+        {typeof entry.feelingScore === "number" ? (
+          <span className="shrink-0 text-xs text-fg-subtle">反馈 {entry.feelingScore}/5</span>
+        ) : null}
+      </button>
+      {open ? (
+        <div className="border-t border-line px-4 py-3">
+          <div className="mb-3">
+            <a
+              href={`/problems/${entry.problemId}`}
+              className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline dark:text-blue-400"
+            >
+              查看这道题的完整历史 →
+            </a>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div>
+              <div className="inline-flex items-center gap-1 text-sm font-medium text-fg">
+                <BookOpen size={14} /> 解题思路
+              </div>
+              <div className="mt-1.5 min-h-16 whitespace-pre-wrap rounded-md border border-line bg-muted p-3 font-mono text-sm leading-6 text-fg-muted">
+                {entry.noteMarkdown || "—"}
+              </div>
+            </div>
+            <div>
+              <div className="inline-flex items-center gap-1 text-sm font-medium text-fg">
+                <Code2 size={14} /> C++ 语法 / 知识点
+              </div>
+              <div className="mt-1.5 min-h-16 whitespace-pre-wrap rounded-md border border-line bg-muted p-3 font-mono text-sm leading-6 text-fg-muted">
+                {entry.noteSyntax || "—"}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -986,8 +1044,10 @@ function TaskRow({
               <textarea
                 value={noteMarkdown}
                 onChange={(event) => setNoteMarkdown(event.target.value)}
-                placeholder="这道题的思路、卡点、错因、下次复习要注意的点（支持 Markdown）"
-                className="mt-2 min-h-[28rem] w-full resize-y rounded-md border border-line-strong bg-surface p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
+                onKeyDown={(event) => handleNoteTab(event, noteMarkdown, setNoteMarkdown)}
+                spellCheck={false}
+                placeholder="这道题的思路、卡点、错因、下次复习要注意的点（支持 Markdown，Tab 缩进）"
+                className="mt-2 min-h-[28rem] w-full resize-y rounded-md border border-line-strong bg-surface p-3 font-mono text-[15px] leading-7 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
               />
             </label>
             <label className="text-sm text-fg-muted">
@@ -997,8 +1057,10 @@ function TaskRow({
               <textarea
                 value={noteSyntax}
                 onChange={(event) => setNoteSyntax(event.target.value)}
-                placeholder="C++ 语法、STL 成员函数用法、容器/迭代器等基础知识点，方便后续整理复习"
-                className="mt-2 min-h-[28rem] w-full resize-y rounded-md border border-line-strong bg-surface p-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
+                onKeyDown={(event) => handleNoteTab(event, noteSyntax, setNoteSyntax)}
+                spellCheck={false}
+                placeholder="C++ 语法、STL 成员函数用法、容器/迭代器等基础知识点（Tab 缩进）"
+                className="mt-2 min-h-[28rem] w-full resize-y rounded-md border border-line-strong bg-surface p-3 font-mono text-[15px] leading-7 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
               />
             </label>
           </div>

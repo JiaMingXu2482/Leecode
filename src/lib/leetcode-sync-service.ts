@@ -1,10 +1,5 @@
 import { getDb } from "@/lib/db";
-import { startOfUtcDay } from "@/lib/dates";
 import { syncLeetCodeCnProblems } from "@/lib/leetcode-cn-sync";
-import {
-  createInitialReviewSchedules,
-  type AcceptedProblemForScheduling,
-} from "@/lib/review-scheduler";
 import { calculateReviewRiskScore } from "@/lib/risk";
 
 export class LeetCodeSyncInputError extends Error {
@@ -113,37 +108,9 @@ export async function runLeetCodeCnSync({
       }
     }
 
-    const existingSchedules = await db.reviewSchedule.findMany({
-      select: { problemId: true },
-    });
-    const scheduledIds = new Set(existingSchedules.map((item) => item.problemId));
-    const acceptedForInitialSchedule = statuses
-      .filter((status) => status.accepted && !scheduledIds.has(status.problemId))
-      .map((status) => {
-        const problem = problems.find((item) => item.id === status.problemId);
-
-        return problem
-          ? {
-              problemId: status.problemId,
-              difficulty: problem.difficulty,
-              lastAcceptedAt: status.lastAcceptedAt,
-            }
-          : null;
-      })
-      .filter((item): item is AcceptedProblemForScheduling => Boolean(item));
-
-    const schedules = createInitialReviewSchedules({
-      today: startOfUtcDay(new Date()),
-      problems: acceptedForInitialSchedule,
-    });
-
-    for (const schedule of schedules) {
-      await db.reviewSchedule.upsert({
-        where: { problemId: schedule.problemId },
-        update: {},
-        create: schedule,
-      });
-    }
+    // Note: syncing AC status does NOT auto-create review schedules. Reviews are
+    // driven only by what you actually study in-app (today plan / sessions), so
+    // long-ago-AC'd problems don't flood the daily plan ahead of recent ones.
 
     const acceptedCount = statuses.filter((status) => status.accepted).length;
     const codeErrors = statuses
