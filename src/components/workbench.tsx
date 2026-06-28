@@ -11,7 +11,6 @@ import {
   Code2,
   DatabaseZap,
   ExternalLink,
-  FileText,
   ListChecks,
   LogOut,
   Minus,
@@ -23,7 +22,6 @@ import {
   Settings2,
   Sun,
   Target,
-  Trash2,
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -60,7 +58,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.0.0";
+const APP_VERSION = "v1.1.0";
 const APP_UPDATED = "2026-06-25";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -195,10 +193,6 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
     if (ok) router.refresh();
   }
 
-  async function removeItem(id: string) {
-    const ok = await requestJson(`/api/plan-items/${id}`, undefined, "DELETE");
-    if (ok) router.refresh();
-  }
 
   async function markItem(
     id: string,
@@ -330,7 +324,6 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               data={data}
               onAdd={addTodayTask}
               onMark={markItem}
-              onRemove={removeItem}
               completion={completion}
             />
           ) : null}
@@ -361,7 +354,6 @@ function TodayView({
   data,
   onAdd,
   onMark,
-  onRemove,
   completion,
 }: {
   data: DashboardData;
@@ -373,7 +365,6 @@ function TodayView({
     noteMarkdown?: string,
     noteSyntax?: string,
   ) => void;
-  onRemove: (id: string) => void;
   completion: number;
 }) {
   const items = data.todayPlan?.items ?? [];
@@ -400,7 +391,7 @@ function TodayView({
         {items.length ? (
           <div className="divide-y divide-line">
             {items.map((item) => (
-              <TaskRow key={item.id} item={item} onMark={onMark} onRemove={onRemove} />
+              <TaskRow key={item.id} item={item} onMark={onMark} />
             ))}
           </div>
         ) : (
@@ -884,13 +875,12 @@ function SyncView({
   );
 }
 
-const feelingLabels = ["一次 AC", "基本顺利", "小错误", "卡了一会", "靠提示", "没思路"];
+const feelingLabels = ["AC（快）", "AC（慢）", "无提示 AC", "提交错误", "思路不清晰", "陌生"];
 const feelingDefaultDays = [7, 5, 3, 2, 1, 1];
 
 function TaskRow({
   item,
   onMark,
-  onRemove,
 }: {
   item: NonNullable<DashboardData["todayPlan"]>["items"][number];
   onMark: (
@@ -900,13 +890,14 @@ function TaskRow({
     noteMarkdown?: string,
     noteSyntax?: string,
   ) => void;
-  onRemove: (id: string) => void;
 }) {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [pastOpen, setPastOpen] = useState(false);
   const [feelingScore, setFeelingScore] = useState<number | null>(item.session?.feelingScore ?? null);
   const [reviewAfterDays, setReviewAfterDays] = useState(item.session?.reviewAfterDays ?? 7);
   const [noteMarkdown, setNoteMarkdown] = useState(item.session?.noteMarkdown ?? "");
   const [noteSyntax, setNoteSyntax] = useState(item.session?.noteSyntax ?? "");
+  const past = item.history ?? [];
 
   function chooseScore(score: number) {
     setFeelingScore(score);
@@ -938,7 +929,7 @@ function TaskRow({
             </span>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-2 lg:w-[320px] lg:shrink-0">
+        <div className="grid grid-cols-2 gap-2 lg:w-[260px] lg:shrink-0">
           <a
             href={item.problem.leetcodeCnUrl}
             target="_blank"
@@ -947,39 +938,17 @@ function TaskRow({
             <ExternalLink size={14} />
             打开力扣
           </a>
-          {item.isCompleted ? (
-            <>
-              <span className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-50 px-2 text-sm font-medium text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300">
-                <Check size={14} /> 已完成
-              </span>
-              <button
-                onClick={() => setFeedbackOpen((open) => !open)}
-                className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-line-strong px-2 text-sm font-medium text-fg hover:bg-muted"
-                title="修改做题感觉或笔记"
-              >
-                <FileText size={14} />
-                {feedbackOpen ? "收起" : "编辑反馈"}
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => setFeedbackOpen((open) => !open)}
-                className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md bg-btn-strong px-2 text-sm font-semibold text-white hover:opacity-90"
-              >
-                <Check size={14} />
-                待完成
-              </button>
-              <button
-                onClick={() => onRemove(item.id)}
-                className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-line-strong px-2 text-sm font-medium text-fg-subtle hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-500/30 dark:hover:bg-red-500/15 dark:hover:text-red-400"
-                title="从今日任务移除"
-              >
-                <Trash2 size={14} />
-                移除
-              </button>
-            </>
-          )}
+          <button
+            onClick={() => setFeedbackOpen((open) => !open)}
+            title="点开填写或编辑做题反馈"
+            className={`inline-flex h-9 w-full items-center justify-center whitespace-nowrap rounded-md px-2 text-sm font-medium ${
+              item.isCompleted
+                ? "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300"
+                : "bg-btn-strong text-white hover:opacity-90"
+            }`}
+          >
+            {item.isCompleted ? "已完成" : "待完成"}
+          </button>
         </div>
       </div>
       {feedbackOpen ? (
@@ -1064,6 +1033,41 @@ function TaskRow({
               />
             </label>
           </div>
+          {past.length ? (
+            <div className="mt-3 rounded-md border border-line bg-surface">
+              <button
+                onClick={() => setPastOpen((open) => !open)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-fg-muted"
+              >
+                <ChevronDown size={14} className={`transition-transform ${pastOpen ? "" : "-rotate-90"}`} />
+                以前做这道题的笔记（{past.length} 次 · 只读，仅供参考）
+              </button>
+              {pastOpen ? (
+                <div className="space-y-2 px-3 pb-3">
+                  {past.map((entry, index) => (
+                    <div key={index} className="rounded-md border border-line bg-muted p-3 text-xs">
+                      <div className="flex items-center gap-2 text-fg-subtle">
+                        <span>{entry.completedAt.slice(0, 10)}</span>
+                        {typeof entry.feelingScore === "number" ? <span>· 反馈 {entry.feelingScore}/5</span> : null}
+                      </div>
+                      {entry.noteMarkdown ? (
+                        <div className="mt-2">
+                          <div className="font-medium text-fg-muted">解题思路</div>
+                          <div className="mt-1 whitespace-pre-wrap font-mono leading-5 text-fg-muted">{entry.noteMarkdown}</div>
+                        </div>
+                      ) : null}
+                      {entry.noteSyntax ? (
+                        <div className="mt-2">
+                          <div className="font-medium text-fg-muted">C++ 语法 / 知识点</div>
+                          <div className="mt-1 whitespace-pre-wrap font-mono leading-5 text-fg-muted">{entry.noteSyntax}</div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

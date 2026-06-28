@@ -22,7 +22,7 @@ export default async function ProblemDetailPage({
     include: {
       progress: true,
       reviewSchedule: true,
-      sessions: { orderBy: { completedAt: "desc" }, take: 20 },
+      sessions: { orderBy: { completedAt: "desc" }, take: 50 },
       leetcodeSubmissions: { orderBy: { submittedAt: "desc" }, take: 20 },
     },
   });
@@ -31,11 +31,16 @@ export default async function ProblemDetailPage({
     notFound();
   }
 
+  const scores = problem.sessions
+    .map((session) => session.feelingScore)
+    .filter((value): value is number => typeof value === "number");
+  const avgScore = scores.length ? (scores.reduce((sum, value) => sum + value, 0) / scores.length).toFixed(1) : "-";
+
   return (
     <main className="min-h-screen bg-canvas px-6 py-8 text-fg">
       <div className="mx-auto max-w-4xl">
-        <Link href="/problems" className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
-          返回题库
+        <Link href="/history" className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
+          ← 返回历史笔记
         </Link>
         <div className="mt-6 rounded-lg border border-line p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -52,9 +57,8 @@ export default async function ProblemDetailPage({
               打开力扣
             </a>
           </div>
-          <dl className="mt-6 grid gap-4 sm:grid-cols-3">
-            <Info label="同步状态" value={problem.progress?.isAccepted ? "已 AC" : "未通过/未同步"} />
-            <Info label="掌握度" value={problem.progress?.mastery ?? "-"} />
+          <dl className="mt-6 grid gap-4 sm:grid-cols-2">
+            <Info label="做题反馈平均分" value={avgScore} />
             <Info
               label="下次复习"
               value={problem.reviewSchedule?.nextReviewDate.toISOString().slice(0, 10) ?? "-"}
@@ -63,55 +67,40 @@ export default async function ProblemDetailPage({
         </div>
 
         <section className="mt-5 rounded-lg border border-line p-5">
-          <h2 className="text-sm font-semibold">轻量笔记</h2>
-          <div className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
-            <Info label="思路" value={problem.progress?.noteIdea || "-"} />
-            <Info label="易错点" value={problem.progress?.notePitfall || "-"} />
-            <Info label="复杂度" value={problem.progress?.noteComplexity || "-"} />
-            <Info label="上次卡点" value={problem.progress?.noteLastBlocker || "-"} />
-          </div>
-        </section>
-
-        <section className="mt-5 rounded-lg border border-line p-5">
           <h2 className="text-sm font-semibold">做题历史与笔记</h2>
-          <p className="mt-1 text-xs text-fg-subtle">每次做题的感觉评分、解题思路和 C++ 语法/知识点笔记，按时间倒序直接展示。</p>
-          <div className="mt-4 space-y-3">
+          <p className="mt-1 text-xs text-fg-subtle">每次做题的感觉评分、解题思路和 C++ 语法/知识点笔记，点开某次查看。</p>
+          <div className="mt-4 space-y-2">
             {problem.sessions.length ? (
               problem.sessions.map((session) => (
-                <div key={session.id} className="rounded-md border border-line p-4 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
+                <details key={session.id} className="overflow-hidden rounded-md border border-line">
+                  <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-3 px-3 py-2.5 text-sm">
+                    <span className="flex flex-wrap items-center gap-2">
                       <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium text-fg-muted">
-                        {kindLabel[session.kind] ?? session.kind} / {session.rating}
+                        {kindLabel[session.kind] ?? session.kind}
                       </span>
                       {typeof session.feelingScore === "number" ? (
                         <span className="text-xs text-fg-subtle">做题感觉 {session.feelingScore}/5</span>
                       ) : null}
-                    </div>
-                    <span className="text-fg-subtle">
+                    </span>
+                    <span className="text-xs text-fg-subtle">
                       {session.spentMinutes}m · {session.completedAt.toISOString().slice(0, 10)}
                     </span>
-                  </div>
-                  {session.noteMarkdown ? (
-                    <div className="mt-3">
+                  </summary>
+                  <div className="grid gap-3 border-t border-line p-3 lg:grid-cols-2">
+                    <div>
                       <div className="text-xs font-medium text-fg-subtle">解题思路</div>
-                      <div className="mt-1 rounded-md bg-muted p-3 leading-6 whitespace-pre-wrap text-fg">
-                        {session.noteMarkdown}
+                      <div className="mt-1.5 min-h-16 whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-sm leading-6 text-fg">
+                        {session.noteMarkdown || "—"}
                       </div>
                     </div>
-                  ) : null}
-                  {session.noteSyntax ? (
-                    <div className="mt-3">
+                    <div>
                       <div className="text-xs font-medium text-fg-subtle">C++ 语法 / 知识点</div>
-                      <div className="mt-1 rounded-md bg-muted p-3 leading-6 whitespace-pre-wrap text-fg">
-                        {session.noteSyntax}
+                      <div className="mt-1.5 min-h-16 whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-sm leading-6 text-fg">
+                        {session.noteSyntax || "—"}
                       </div>
                     </div>
-                  ) : null}
-                  {!session.noteMarkdown && !session.noteSyntax ? (
-                    <p className="mt-2 text-xs text-fg-subtle">这次没有写笔记。</p>
-                  ) : null}
-                </div>
+                  </div>
+                </details>
               ))
             ) : (
               <p className="text-sm text-fg-subtle">还没有本地做题记录。</p>
@@ -121,21 +110,30 @@ export default async function ProblemDetailPage({
 
         <section className="mt-5 rounded-lg border border-line p-5">
           <h2 className="text-sm font-semibold">代码记录</h2>
-          <div className="mt-4 space-y-4">
+          <div className="mt-4 space-y-3">
             {problem.leetcodeSubmissions.length ? (
-              problem.leetcodeSubmissions.map((submission) => (
-                <details key={submission.id} className="rounded-md border border-line">
-                  <summary className="cursor-pointer px-3 py-2 text-sm">
-                    <span className="font-medium">{submission.statusDisplay}</span>
-                    <span className="ml-2 text-fg-subtle">
-                      {submission.language || "-"} · {submission.submittedAt.toISOString().slice(0, 19).replace("T", " ")}
-                    </span>
-                  </summary>
-                  <pre className="max-h-[520px] overflow-auto border-t border-line bg-slate-950 p-4 text-xs leading-5 text-slate-100">
-                    <code>{submission.code || "这次同步只拿到了提交记录，没有拿到代码内容。"}</code>
-                  </pre>
-                </details>
-              ))
+              problem.leetcodeSubmissions.map((submission) => {
+                const hasCode = submission.code.trim().length > 3;
+                return (
+                  <details key={submission.id} className="overflow-hidden rounded-md border border-line">
+                    <summary className="cursor-pointer px-3 py-2.5 text-sm">
+                      <span className="font-medium">{submission.statusDisplay}</span>
+                      <span className="ml-2 text-fg-subtle">
+                        {submission.language || "-"} · {submission.submittedAt.toISOString().slice(0, 19).replace("T", " ")}
+                      </span>
+                    </summary>
+                    {hasCode ? (
+                      <pre className="max-h-[520px] overflow-auto border-t border-line bg-slate-950 p-4 font-mono text-[13px] leading-6 text-slate-100">
+                        <code>{submission.code}</code>
+                      </pre>
+                    ) : (
+                      <p className="border-t border-line px-4 py-3 text-xs text-fg-subtle">
+                        这条提交没有同步到代码内容（leetcode.cn 对历史提交的代码接口限流）。去「力扣同步」页重新同步一次可再尝试拉取。
+                      </p>
+                    )}
+                  </details>
+                );
+              })
             ) : (
               <p className="text-sm text-fg-subtle">还没有同步到代码。去力扣同步页重新同步一次。</p>
             )}

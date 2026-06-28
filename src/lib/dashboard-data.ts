@@ -126,12 +126,8 @@ export async function getDashboardData() {
         orderBy: { completedAt: "desc" },
       })
     : [];
-  const latestSessionByProblem = new Map<string, (typeof latestSessions)[number]>();
   const sessionsByProblem = new Map<string, typeof latestSessions>();
   for (const session of latestSessions) {
-    if (!latestSessionByProblem.has(session.problemId)) {
-      latestSessionByProblem.set(session.problemId, session);
-    }
     const list = sessionsByProblem.get(session.problemId) ?? [];
     list.push(session);
     sessionsByProblem.set(session.problemId, list);
@@ -216,7 +212,9 @@ export async function getDashboardData() {
           availableMinutes: todayPlan.availableMinutes,
           totalEstimatedMinutes: todayPlan.totalEstimatedMinutes,
           items: todayPlan.items.map((item) => {
-            const session = item.session ?? latestSessionByProblem.get(item.problemId) ?? null;
+            // Editor prefill uses only this plan item's own session — a fresh
+            // (re-)attempt starts blank instead of pre-filling old notes.
+            const session = item.session ?? null;
             return {
             id: item.id,
             kind: item.kind,
@@ -230,12 +228,16 @@ export async function getDashboardData() {
                   noteSyntax: session.noteSyntax,
                 }
               : null,
-            history: (sessionsByProblem.get(item.problemId) ?? []).map((entry) => ({
-              completedAt: entry.completedAt.toISOString(),
-              feelingScore: entry.feelingScore,
-              noteMarkdown: entry.noteMarkdown,
-              noteSyntax: entry.noteSyntax,
-            })),
+            // Past notes for this problem (excluding the entry being edited),
+            // shown read-only below the editor for reference.
+            history: (sessionsByProblem.get(item.problemId) ?? [])
+              .filter((entry) => entry.id !== session?.id)
+              .map((entry) => ({
+                completedAt: entry.completedAt.toISOString(),
+                feelingScore: entry.feelingScore,
+                noteMarkdown: entry.noteMarkdown,
+                noteSyntax: entry.noteSyntax,
+              })),
             slot: item.availabilitySlot
               ? {
                   id: item.availabilitySlot.id,
