@@ -127,10 +127,17 @@ export async function getDashboardData() {
       })
     : [];
   const sessionsByProblem = new Map<string, typeof latestSessions>();
+  // Today's session per problem (latest), so completion/notes survive a re-plan:
+  // a task counts as done today if there's a session for it completed today,
+  // regardless of which (possibly regenerated) plan item it's linked to.
+  const todaySessionByProblem = new Map<string, (typeof latestSessions)[number]>();
   for (const session of latestSessions) {
     const list = sessionsByProblem.get(session.problemId) ?? [];
     list.push(session);
     sessionsByProblem.set(session.problemId, list);
+    if (session.completedAt >= today && !todaySessionByProblem.has(session.problemId)) {
+      todaySessionByProblem.set(session.problemId, session);
+    }
   }
 
   // Recent study sessions grouped by day for the weekly history board.
@@ -162,6 +169,11 @@ export async function getDashboardData() {
   const weekHistory = [...weekHistoryMap.entries()]
     .sort((a, b) => b[0].localeCompare(a[0]))
     .map(([date, items]) => ({ date, items }));
+  // (problemId|dateKey) pairs that have a study session — used so a weekly plan
+  // item counts as done if it was actually studied on that day (survives re-plan).
+  const sessionDayKeys = new Set(
+    recentSessions.map((session) => `${session.problemId}|${toDateKey(session.completedAt)}`),
+  );
 
   const availability = upcomingDates.map((date) => {
     const row = availabilityRows.find((item) => toDateKey(item.date) === toDateKey(date));
@@ -212,14 +224,15 @@ export async function getDashboardData() {
           availableMinutes: todayPlan.availableMinutes,
           totalEstimatedMinutes: todayPlan.totalEstimatedMinutes,
           items: todayPlan.items.map((item) => {
-            // Editor prefill uses only this plan item's own session — a fresh
-            // (re-)attempt starts blank instead of pre-filling old notes.
-            const session = item.session ?? null;
+            // Done today = this plan item is marked done, OR there is a session
+            // for this problem completed today (survives a re-plan). The editor
+            // prefills with that session; if there's none, a fresh attempt is blank.
+            const session = item.session ?? todaySessionByProblem.get(item.problemId) ?? null;
             return {
             id: item.id,
             kind: item.kind,
             estimatedMinutes: item.estimatedMinutes,
-            isCompleted: item.isCompleted,
+            isCompleted: item.isCompleted || Boolean(todaySessionByProblem.get(item.problemId)),
             session: session
               ? {
                   feelingScore: session.feelingScore,
@@ -273,7 +286,7 @@ export async function getDashboardData() {
         id: item.id,
         kind: item.kind,
         estimatedMinutes: item.estimatedMinutes,
-        isCompleted: item.isCompleted,
+        isCompleted: item.isCompleted || sessionDayKeys.has(`${item.problemId}|${toDateKey(plan.date)}`),
         problem: {
           id: item.problem.id,
           frontendId: item.problem.frontendId,
