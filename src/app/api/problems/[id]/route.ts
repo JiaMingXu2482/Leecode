@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthorizedRequest } from "@/lib/auth";
+import { startOfUtcDay } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 
 export async function GET(
@@ -55,10 +56,13 @@ export async function PUT(
     },
   });
 
-  // Excluding a problem ("不再复习此题") also drops its review schedule so it
-  // stops surfacing as a due/retest candidate. Study history is kept.
+  // Excluding a problem drops its review schedule and removes it from today's
+  // and upcoming daily plans so it disappears right away. Study history is kept.
   if (body.isEnabled === false) {
     await db.reviewSchedule.deleteMany({ where: { problemId: id } });
+    await db.planItem.deleteMany({
+      where: { problemId: id, dailyPlan: { date: { gte: startOfUtcDay(new Date()) } } },
+    });
   }
 
   return NextResponse.json({ problem });

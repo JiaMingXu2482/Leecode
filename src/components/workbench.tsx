@@ -58,7 +58,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.1.0";
+const APP_VERSION = "v1.1.1";
 const APP_UPDATED = "2026-06-25";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -930,14 +930,6 @@ function TaskRow({
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2 lg:w-[260px] lg:shrink-0">
-          <a
-            href={item.problem.leetcodeCnUrl}
-            target="_blank"
-            className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-line-strong px-2 text-sm font-medium text-fg hover:bg-muted"
-          >
-            <ExternalLink size={14} />
-            打开力扣
-          </a>
           <button
             onClick={() => setFeedbackOpen((open) => !open)}
             title="点开填写或编辑做题反馈"
@@ -949,6 +941,14 @@ function TaskRow({
           >
             {item.isCompleted ? "已完成" : "待完成"}
           </button>
+          <a
+            href={item.problem.leetcodeCnUrl}
+            target="_blank"
+            className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-line-strong px-2 text-sm font-medium text-fg hover:bg-muted"
+          >
+            <ExternalLink size={14} />
+            去刷题
+          </a>
         </div>
       </div>
       {feedbackOpen ? (

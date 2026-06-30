@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthorizedRequest } from "@/lib/auth";
+import { startOfUtcDay } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 
 export async function GET(request: NextRequest) {
@@ -39,9 +40,16 @@ export async function PATCH(request: NextRequest) {
     data: { isEnabled: body.isEnabled },
   });
 
-  // Excluding a problem also drops its review schedule so it stops surfacing.
+  // Excluding a problem drops its review schedule and removes it from today's
+  // and upcoming daily plans so it disappears from the plan right away.
   if (body.isEnabled === false) {
     await db.reviewSchedule.deleteMany({ where: { problemId: { in: body.problemIds } } });
+    await db.planItem.deleteMany({
+      where: {
+        problemId: { in: body.problemIds },
+        dailyPlan: { date: { gte: startOfUtcDay(new Date()) } },
+      },
+    });
   }
 
   return NextResponse.json({ ok: true, count: body.problemIds.length });
