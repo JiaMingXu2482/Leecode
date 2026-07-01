@@ -58,7 +58,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.2.5";
+const APP_VERSION = "v1.2.6";
 const APP_UPDATED = "2026-07-01";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -291,14 +291,6 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               <Link
                 key={item.key}
                 href={item.href}
-                onClick={() => {
-                  // Only collapse the mobile overlay. On desktop the sidebar
-                  // stays open; closing it here caused a collapse-then-expand
-                  // flicker on navigation.
-                  if (typeof window !== "undefined" && !window.matchMedia("(min-width: 1024px)").matches) {
-                    setSidebarOpen(false);
-                  }
-                }}
                 className={`flex h-10 items-center gap-3 rounded-md px-3 text-sm transition ${
                   selected
                     ? "bg-blue-50 font-semibold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300"
