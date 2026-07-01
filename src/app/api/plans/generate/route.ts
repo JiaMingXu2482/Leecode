@@ -1,6 +1,6 @@
 import { PlanItemKind } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
-import { addUtcDays, nextNDays, startOfUtcDay, toDateKey } from "@/lib/dates";
+import { addUtcDays, nextNDays, startOfUtcDay, toDateKey, weekdayIndex } from "@/lib/dates";
 import { isAuthorizedRequest } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { calculateReviewRiskScore } from "@/lib/risk";
@@ -36,10 +36,14 @@ export async function POST(request: NextRequest) {
   const dates = nextNDays(7, today);
   const endExclusive = addUtcDays(today, 7);
 
-  // Desired number of problems per day.
+  // Desired number of problems per day. Sunday is a rest day — never scheduled.
   const counts = new Map<string, number>();
   for (const date of dates) {
     const key = toDateKey(date);
+    if (weekdayIndex(date) === 0) {
+      counts.set(key, 0);
+      continue;
+    }
     const raw = body.counts?.[key];
     const value = typeof raw === "number" ? raw : body.dailyCount ?? DEFAULT_DAILY_COUNT;
     counts.set(key, Math.max(0, Math.min(MAX_DAILY_COUNT, Math.floor(value))));

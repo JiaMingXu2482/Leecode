@@ -197,6 +197,33 @@ export async function getDashboardData() {
     }
   }
 
+  // Contribution-style heatmap: per-day study-session counts over the last
+  // HEAT_WEEKS calendar weeks (Monday-anchored, so each column is one week).
+  const HEAT_WEEKS = 18;
+  const heatStart = addUtcDays(weekStart, -7 * (HEAT_WEEKS - 1));
+  const heatSessions = await db.studySession.findMany({
+    where: { completedAt: { gte: heatStart } },
+    select: { completedAt: true },
+  });
+  const heatCounts: Record<string, number> = {};
+  for (const session of heatSessions) {
+    const key = toDateKey(session.completedAt);
+    heatCounts[key] = (heatCounts[key] ?? 0) + 1;
+  }
+  const monthPrefix = toDateKey(today).slice(0, 7);
+  const weekStartKey = toDateKey(weekStart);
+  const todayKeyForHeat = toDateKey(today);
+  let heatMonth = 0;
+  let heatWeek = 0;
+  for (const [key, count] of Object.entries(heatCounts)) {
+    if (key.slice(0, 7) === monthPrefix) {
+      heatMonth += count;
+    }
+    if (key >= weekStartKey && key <= todayKeyForHeat) {
+      heatWeek += count;
+    }
+  }
+
   const availability = upcomingDates.map((date) => {
     const row = availabilityRows.find((item) => toDateKey(item.date) === toDateKey(date));
 
@@ -320,6 +347,15 @@ export async function getDashboardData() {
     })),
     weekHistory,
     weekProgress: { done: weekDone, target: weekTarget },
+    heatmap: {
+      start: toDateKey(heatStart),
+      weeks: HEAT_WEEKS,
+      today: todayKeyForHeat,
+      counts: heatCounts,
+      total: sessions,
+      month: heatMonth,
+      week: heatWeek,
+    },
     availability,
     slots,
     problems: problems.map((problem) => ({

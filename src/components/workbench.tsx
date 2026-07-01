@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowRight,
   ArrowUpDown,
   BarChart3,
   BookOpen,
@@ -13,7 +14,6 @@ import {
   ExternalLink,
   ListChecks,
   LogOut,
-  Minus,
   Moon,
   NotebookPen,
   PanelLeft,
@@ -58,8 +58,8 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.1.3";
-const APP_UPDATED = "2026-06-25";
+const APP_VERSION = "v1.2.0";
+const APP_UPDATED = "2026-07-01";
 const DEFAULT_DAILY_COUNT = 3;
 
 function handleNoteTab(
@@ -178,6 +178,40 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
       return null;
     }
 
+    const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
+    return payload.weekPlans;
+  }
+
+  // Push a single problem to the next day (skip Sunday) without reshuffling.
+  async function deferItem(id: string) {
+    setBusy(`/api/plan-items/${id}/defer`);
+    setMessage("");
+    const response = await fetch(`/api/plan-items/${id}/defer`, { method: "POST" });
+    setBusy("");
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      setMessage(payload.error ?? "操作失败");
+      return null;
+    }
+    const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
+    return payload.weekPlans;
+  }
+
+  // Append one more problem to a day's plan without reshuffling the week.
+  async function addOneToDay(date: string) {
+    setBusy("/api/plans/add-one");
+    setMessage("");
+    const response = await fetch("/api/plans/add-one", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ date }),
+    });
+    setBusy("");
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      setMessage(payload.error ?? "追加失败");
+      return null;
+    }
     const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
     return payload.weekPlans;
   }
@@ -333,6 +367,8 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               initialPlans={data.weekPlans}
               history={data.weekHistory}
               onGenerate={generateWeekly}
+              onAddOne={addOneToDay}
+              onDefer={deferItem}
               busy={Boolean(busy)}
             />
           ) : null}
@@ -400,6 +436,7 @@ function TodayView({
           </div>
         )}
       </div>
+      <StudyHeatmap heatmap={data.heatmap} />
     </div>
   );
 }
@@ -409,32 +446,46 @@ function WeeklyView({
   initialPlans,
   history,
   onGenerate,
+  onAddOne,
+  onDefer,
   busy,
 }: {
   days: WeekDay[];
   initialPlans: WeekPlans;
   history: DashboardData["weekHistory"];
   onGenerate: (counts: Record<string, number>) => Promise<WeekPlans | null>;
+  onAddOne: (date: string) => Promise<WeekPlans | null>;
+  onDefer: (id: string) => Promise<WeekPlans | null>;
   busy: boolean;
 }) {
   const [plans, setPlans] = useState(initialPlans);
-  const [counts, setCounts] = useState<Record<string, number>>(() => {
-    const initial: Record<string, number> = {};
-    for (const day of days) {
-      const plan = initialPlans.find((item) => item.date === day.date);
-      initial[day.date] = plan ? plan.items.length : DEFAULT_DAILY_COUNT;
-    }
-    return initial;
-  });
   const plansByDate = new Map(plans.map((plan) => [plan.date, plan.items]));
   const todayKey = days[0]?.date ?? "";
   const pastDays = history.filter((day) => day.date < todayKey);
 
-  async function changeCount(date: string, delta: number) {
-    const next = Math.max(0, Math.min(30, (counts[date] ?? 0) + delta));
-    const nextCounts = { ...counts, [date]: next };
-    setCounts(nextCounts);
-    const result = await onGenerate(nextCounts);
+  async function addOne(date: string) {
+    const result = await onAddOne(date);
+    if (result) {
+      setPlans(result);
+    }
+  }
+
+  async function defer(id: string) {
+    const result = await onDefer(id);
+    if (result) {
+      setPlans(result);
+    }
+  }
+
+  // Deliberate full re-plan of the week, keeping each day's current size (blank
+  // non-Sunday days default to DEFAULT_DAILY_COUNT so they get seeded).
+  async function regenerate() {
+    const counts: Record<string, number> = {};
+    for (const day of days) {
+      const len = plansByDate.get(day.date)?.length ?? 0;
+      counts[day.date] = day.weekday === 0 ? 0 : len > 0 ? len : DEFAULT_DAILY_COUNT;
+    }
+    const result = await onGenerate(counts);
     if (result) {
       setPlans(result);
     }
@@ -442,40 +493,55 @@ function WeeklyView({
 
   return (
     <section className="space-y-4">
-      <p className="text-sm text-fg-subtle">
-        调整每天的题量，系统会按艾宾浩斯遗忘曲线（到期/逾期复习优先，其次新题）实时重新排题。
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-fg-subtle">
+          按艾宾浩斯遗忘曲线排题（到期/逾期复习优先，其次新题）。周日休息不排题；点某题的「往后排」可把它顺延到下一天。
+        </p>
+        <button
+          onClick={regenerate}
+          disabled={busy}
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-line-strong px-2.5 text-xs font-medium text-fg-muted hover:bg-muted disabled:opacity-40"
+          title="按当前每天题量重新排整周（会打乱已排的题）"
+        >
+          <RefreshCw size={13} />
+          重排本周
+        </button>
+      </div>
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
-        {days.map((day) => (
-          <div key={day.date} className="rounded-lg border border-line bg-surface p-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-baseline gap-2">
-                <span className="text-sm font-semibold">{weekdayLabels[day.weekday]}</span>
-                <span className="text-xs text-fg-subtle">{formatYmd(day.date)}</span>
+        {days.map((day) => {
+          const isSunday = day.weekday === 0;
+          const items = plansByDate.get(day.date) ?? [];
+          return (
+            <div key={day.date} className="rounded-lg border border-line bg-surface p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm font-semibold">{weekdayLabels[day.weekday]}</span>
+                  <span className="text-xs text-fg-subtle">{formatYmd(day.date)}</span>
+                </div>
+                {isSunday ? (
+                  <span className="text-xs text-fg-subtle">休息日</span>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-6 text-center text-sm font-semibold tabular-nums">{items.length}</span>
+                    <button
+                      onClick={() => addOne(day.date)}
+                      disabled={busy || items.length >= 30}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-line text-fg-muted hover:bg-muted disabled:opacity-40"
+                      title="追加一题（不打乱已排的题）"
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
+                )}
               </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => changeCount(day.date, -1)}
-                  disabled={busy || (counts[day.date] ?? 0) <= 0}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-line text-fg-muted hover:bg-muted disabled:opacity-40"
-                  title="少一题"
-                >
-                  <Minus size={14} />
-                </button>
-                <span className="w-6 text-center text-sm font-semibold tabular-nums">{counts[day.date] ?? 0}</span>
-                <button
-                  onClick={() => changeCount(day.date, 1)}
-                  disabled={busy || (counts[day.date] ?? 0) >= 30}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-line text-fg-muted hover:bg-muted disabled:opacity-40"
-                  title="多一题"
-                >
-                  <Plus size={14} />
-                </button>
-              </div>
+              {isSunday ? (
+                <p className="mt-3 border-t border-line pt-3 text-xs text-fg-subtle">周日休息，不安排题目。</p>
+              ) : (
+                <DayPlanList items={items} onDefer={defer} busy={busy} />
+              )}
             </div>
-            <DayPlanList items={plansByDate.get(day.date) ?? []} />
-          </div>
-        ))}
+          );
+        })}
         {pastDays.map((day) => {
           const weekday = weekdayLabels[new Date(`${day.date}T00:00:00Z`).getUTCDay()];
           return (
@@ -600,7 +666,15 @@ function HistoryEntry({ entry }: { entry: DashboardData["weekHistory"][number]["
   );
 }
 
-function DayPlanList({ items }: { items: DashboardData["weekPlans"][number]["items"] }) {
+function DayPlanList({
+  items,
+  onDefer,
+  busy,
+}: {
+  items: DashboardData["weekPlans"][number]["items"];
+  onDefer: (id: string) => void;
+  busy: boolean;
+}) {
   const totalMinutes = items.reduce((sum, item) => sum + item.estimatedMinutes, 0);
 
   return (
@@ -612,10 +686,10 @@ function DayPlanList({ items }: { items: DashboardData["weekPlans"][number]["ite
       {items.length ? (
         <ul className="space-y-1.5">
           {items.map((item) => (
-            <li key={item.id}>
+            <li key={item.id} className="flex items-center gap-1">
               <a
                 href={`/problems/${item.problem.id}`}
-                className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-muted"
+                className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-muted"
                 title="查看这道题的历史笔记"
               >
                 <span className="font-mono text-[11px] text-fg-subtle">#{item.problem.frontendId}</span>
@@ -632,11 +706,21 @@ function DayPlanList({ items }: { items: DashboardData["weekPlans"][number]["ite
                 <span className="shrink-0 text-[10px] text-fg-subtle">{kindLabel[item.kind]}</span>
                 {item.isCompleted ? <Check size={12} className="shrink-0 text-emerald-500" /> : null}
               </a>
+              {item.isCompleted ? null : (
+                <button
+                  onClick={() => onDefer(item.id)}
+                  disabled={busy}
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-line text-fg-subtle hover:bg-muted disabled:opacity-40"
+                  title="往后排一天（今天不做这题）"
+                >
+                  <ArrowRight size={12} />
+                </button>
+              )}
             </li>
           ))}
         </ul>
       ) : (
-        <p className="text-xs text-fg-subtle">点下方“保存时段并生成周计划”自动排题。</p>
+        <p className="text-xs text-fg-subtle">点右上角「+」追加一题，或用「重排本周」自动排题。</p>
       )}
     </div>
   );
@@ -1082,10 +1166,94 @@ function MetricGrid({ data }: { data: DashboardData; completion: number }) {
   const weekPct = weekTarget ? Math.round((weekDone / weekTarget) * 100) : 0;
 
   return (
-    <div className="grid gap-4 md:grid-cols-3">
+    <div className="grid gap-4 md:grid-cols-2">
       <Metric label="本周进度" value={`${weekDone}/${weekTarget}`} hint={`${weekPct}% · 本周目标题数`} />
-      <Metric label="做题记录" value={`${data.stats.sessions}`} hint="累计 session" />
       <Metric label="今日题量" value={`${todayDone}/${todayCount}`} hint="已处理 / 今日题数" />
+    </div>
+  );
+}
+
+function heatLevelClass(count: number, future: boolean) {
+  if (future) return "bg-transparent";
+  if (count <= 0) return "bg-muted";
+  if (count <= 1) return "bg-emerald-500/30";
+  if (count <= 3) return "bg-emerald-500/55";
+  if (count <= 5) return "bg-emerald-500/80";
+  return "bg-emerald-500";
+}
+
+// GitHub-style contribution grid of daily study counts. Columns are weeks
+// (Monday top → Sunday bottom); darker green = more problems that day.
+function StudyHeatmap({ heatmap }: { heatmap: DashboardData["heatmap"] }) {
+  const start = new Date(`${heatmap.start}T00:00:00Z`);
+  const columns = Array.from({ length: heatmap.weeks }, (_, w) =>
+    Array.from({ length: 7 }, (_, r) => {
+      const date = new Date(start);
+      date.setUTCDate(date.getUTCDate() + w * 7 + r);
+      const key = date.toISOString().slice(0, 10);
+      return {
+        key,
+        count: heatmap.counts[key] ?? 0,
+        future: key > heatmap.today,
+        month: date.getUTCMonth() + 1,
+        day: date.getUTCDate(),
+      };
+    }),
+  );
+  const monthLabels = columns.map((col, index) => {
+    const month = col[0].month;
+    const prev = index > 0 ? columns[index - 1][0].month : -1;
+    return month !== prev ? `${month}月` : "";
+  });
+  const weekdayRowLabels = ["一", "", "三", "", "五", "", "日"];
+
+  return (
+    <section className="rounded-lg border border-line bg-surface p-4">
+      <div className="mb-4 grid grid-cols-3 divide-x divide-line">
+        <HeatStat label="累计完成" value={heatmap.total} />
+        <HeatStat label="本月完成" value={heatmap.month} />
+        <HeatStat label="本周完成" value={heatmap.week} />
+      </div>
+      <div className="overflow-x-auto">
+        <div className="flex gap-1">
+          <div className="mr-1 flex flex-col gap-1 text-[9px] leading-3 text-fg-subtle">
+            {weekdayRowLabels.map((label, index) => (
+              <div key={index} className="h-3">{label}</div>
+            ))}
+          </div>
+          <div>
+            <div className="flex gap-1">
+              {columns.map((col, index) => (
+                <div key={index} className="flex flex-col gap-1">
+                  {col.map((cell) => (
+                    <div
+                      key={cell.key}
+                      title={cell.future ? undefined : `${cell.month}月${cell.day}日 · ${cell.count} 题`}
+                      className={`h-3 w-3 rounded-sm ${heatLevelClass(cell.count, cell.future)}`}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+            <div className="mt-1 flex gap-1">
+              {monthLabels.map((label, index) => (
+                <div key={index} className="w-3 whitespace-nowrap text-[9px] leading-none text-fg-subtle">
+                  {label}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HeatStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="px-3 first:pl-0">
+      <div className="text-xs font-medium text-fg-subtle">{label}</div>
+      <div className="mt-1 text-2xl font-semibold tracking-tight">{value}</div>
     </div>
   );
 }

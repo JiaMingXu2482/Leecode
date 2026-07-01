@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthorizedRequest } from "@/lib/auth";
+import { addUtcDays, startOfUtcDay, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import {
   calculateFeelingScoreReview,
@@ -148,6 +149,52 @@ export async function PATCH(
       },
     }),
   ]);
+
+  // 陌生 (score 5): make sure this problem comes back the next day. The week is
+  // planned ahead, so a fresh "unfamiliar" rating won't otherwise land in an
+  // already-generated tomorrow — insert it into that day's plan directly.
+  if (feelingScore === 5) {
+    const todayStart = startOfUtcDay(new Date());
+    let target = startOfUtcDay(review.nextReviewDate);
+    if (weekdayIndex(target) === 0) {
+      target = addUtcDays(target, 1); // Sunday is a rest day
+    }
+    if (target.getTime() >= todayStart.getTime()) {
+      const targetPlan = await db.dailyPlan.upsert({
+        where: { date: target },
+        update: {},
+        create: { date: target, availableMinutes: 0, totalEstimatedMinutes: 0 },
+      });
+      const already = await db.planItem.findFirst({
+        where: { dailyPlanId: targetPlan.id, problemId: item.problemId },
+      });
+      if (!already) {
+        const estimatedMinutes = item.problem.estimatedReviewMinutes;
+        const maxSort = await db.planItem.aggregate({
+          where: { dailyPlanId: targetPlan.id },
+          _max: { sortOrder: true },
+        });
+        await db.$transaction([
+          db.planItem.create({
+            data: {
+              dailyPlanId: targetPlan.id,
+              problemId: item.problemId,
+              kind: "REVIEW",
+              estimatedMinutes,
+              sortOrder: (maxSort._max.sortOrder ?? 0) + 1,
+            },
+          }),
+          db.dailyPlan.update({
+            where: { id: targetPlan.id },
+            data: {
+              totalEstimatedMinutes: { increment: estimatedMinutes },
+              availableMinutes: { increment: estimatedMinutes },
+            },
+          }),
+        ]);
+      }
+    }
+  }
 
   return NextResponse.json({
     item: updated,
