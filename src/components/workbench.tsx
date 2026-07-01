@@ -58,7 +58,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.2.4";
+const APP_VERSION = "v1.2.5";
 const APP_UPDATED = "2026-07-01";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -291,7 +291,14 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               <Link
                 key={item.key}
                 href={item.href}
-                onClick={() => setSidebarOpen(false)}
+                onClick={() => {
+                  // Only collapse the mobile overlay. On desktop the sidebar
+                  // stays open; closing it here caused a collapse-then-expand
+                  // flicker on navigation.
+                  if (typeof window !== "undefined" && !window.matchMedia("(min-width: 1024px)").matches) {
+                    setSidebarOpen(false);
+                  }
+                }}
                 className={`flex h-10 items-center gap-3 rounded-md px-3 text-sm transition ${
                   selected
                     ? "bg-blue-50 font-semibold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300"
@@ -538,7 +545,7 @@ function WeeklyView({
   }
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-fg-subtle">
           按艾宾浩斯遗忘曲线排题（到期/逾期复习优先，其次新题）。周日休息不排题；点某题的「往后排」可把它顺延到下一天。
@@ -553,76 +560,88 @@ function WeeklyView({
           重排本周
         </button>
       </div>
-      <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
-        {days.map((day) => {
-          const isSunday = day.weekday === 0;
-          const items = plansByDate.get(day.date) ?? [];
-          return (
-            <div key={day.date} className="rounded-lg border border-line bg-surface p-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-semibold">{weekdayLabels[day.weekday]}</span>
-                  <span className="text-xs text-fg-subtle">{formatYmd(day.date)}</span>
+      <div>
+        <h3 className="mb-3 text-sm font-semibold text-fg">未来计划</h3>
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
+          {days.map((day) => {
+            const isSunday = day.weekday === 0;
+            const items = plansByDate.get(day.date) ?? [];
+            return (
+              <div key={day.date} className="rounded-lg border border-line bg-surface p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-sm font-semibold">{weekdayLabels[day.weekday]}</span>
+                    <span className="text-xs text-fg-subtle">{formatYmd(day.date)}</span>
+                  </div>
+                  {isSunday ? (
+                    <span className="text-xs text-fg-subtle">休息日</span>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-6 text-center text-sm font-semibold tabular-nums">{items.length}</span>
+                      <button
+                        onClick={() => addOne(day.date)}
+                        disabled={busy || items.length >= 30}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-line text-fg-muted hover:bg-muted disabled:opacity-40"
+                        title="追加一题（不打乱已排的题）"
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </div>
+                  )}
                 </div>
                 {isSunday ? (
-                  <span className="text-xs text-fg-subtle">休息日</span>
+                  <p className="mt-3 border-t border-line pt-3 text-xs text-fg-subtle">周日休息，不安排题目。</p>
                 ) : (
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-6 text-center text-sm font-semibold tabular-nums">{items.length}</span>
-                    <button
-                      onClick={() => addOne(day.date)}
-                      disabled={busy || items.length >= 30}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-line text-fg-muted hover:bg-muted disabled:opacity-40"
-                      title="追加一题（不打乱已排的题）"
-                    >
-                      <Plus size={14} />
-                    </button>
-                  </div>
+                  <DayPlanList items={items} onDefer={defer} busy={busy} />
                 )}
               </div>
-              {isSunday ? (
-                <p className="mt-3 border-t border-line pt-3 text-xs text-fg-subtle">周日休息，不安排题目。</p>
-              ) : (
-                <DayPlanList items={items} onDefer={defer} busy={busy} />
-              )}
-            </div>
-          );
-        })}
-        {pastDays.map((day) => {
-          const weekday = weekdayLabels[new Date(`${day.date}T00:00:00Z`).getUTCDay()];
-          return (
-            <div key={day.date} className="rounded-lg border border-line bg-surface p-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-semibold">{weekday}</span>
-                  <span className="text-xs text-fg-subtle">{formatYmd(day.date)}</span>
-                </div>
-                <span className="text-xs text-fg-subtle">已做 {day.items.length}</span>
-              </div>
-              <ul className="mt-3 space-y-1.5">
-                {day.items.map((entry, index) => (
-                  <li key={index}>
-                    <a
-                      href={`/problems/${entry.problemId}`}
-                      className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-muted"
-                      title="查看这道题的历史笔记"
-                    >
-                      <span className="font-mono text-[11px] text-fg-subtle">#{entry.frontendId}</span>
-                      <span className="min-w-0 flex-1 truncate text-xs text-fg">{entry.titleCn}</span>
-                      {typeof entry.feelingScore === "number" ? (
-                        <span className="shrink-0 text-[10px] text-fg-subtle">{entry.feelingScore}/5</span>
-                      ) : null}
-                      <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${difficultyClass[entry.difficulty as keyof typeof difficultyClass]}`}>
-                        {difficultyCn[entry.difficulty as keyof typeof difficultyCn]}
-                      </span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
+
+      {pastDays.length ? (
+        <div>
+          <h3 className="mb-1 text-sm font-semibold text-fg">以前的计划</h3>
+          <p className="mb-3 text-xs text-fg-subtle">按天回顾之前做过的题和当时的反馈分。</p>
+          <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
+            {pastDays.map((day) => {
+              const weekday = weekdayLabels[new Date(`${day.date}T00:00:00Z`).getUTCDay()];
+              return (
+                <div key={day.date} className="rounded-lg border border-line bg-surface p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-sm font-semibold">{weekday}</span>
+                      <span className="text-xs text-fg-subtle">{formatYmd(day.date)}</span>
+                    </div>
+                    <span className="text-xs text-fg-subtle">已做 {day.items.length}</span>
+                  </div>
+                  <ul className="mt-3 space-y-1.5">
+                    {day.items.map((entry, index) => (
+                      <li key={index}>
+                        <a
+                          href={`/problems/${entry.problemId}`}
+                          className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-muted"
+                          title="查看这道题的历史笔记"
+                        >
+                          <span className="font-mono text-[11px] text-fg-subtle">#{entry.frontendId}</span>
+                          <span className="min-w-0 flex-1 truncate text-xs text-fg">{entry.titleCn}</span>
+                          {typeof entry.feelingScore === "number" ? (
+                            <span className="shrink-0 text-[10px] text-fg-subtle">{entry.feelingScore}/5</span>
+                          ) : null}
+                          <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${difficultyClass[entry.difficulty as keyof typeof difficultyClass]}`}>
+                            {difficultyCn[entry.difficulty as keyof typeof difficultyCn]}
+                          </span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
