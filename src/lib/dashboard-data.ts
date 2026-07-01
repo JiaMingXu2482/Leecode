@@ -175,6 +175,28 @@ export async function getDashboardData() {
     recentSessions.map((session) => `${session.problemId}|${toDateKey(session.completedAt)}`),
   );
 
+  // "本周进度" over the actual calendar week (Monday–Sunday of the week
+  // containing today), not the next-7-days window. Days already passed this
+  // week — e.g. yesterday — still count, and a planned problem is done if it
+  // was studied that day (survives a re-plan). Weekly plans query is anchored
+  // at today, so past days of the week are fetched separately here.
+  const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7));
+  const weekProgressPlans = await db.dailyPlan.findMany({
+    where: { date: { gte: weekStart, lt: addUtcDays(weekStart, 7) } },
+    include: { items: { select: { problemId: true, isCompleted: true } } },
+  });
+  let weekDone = 0;
+  let weekTarget = 0;
+  for (const plan of weekProgressPlans) {
+    const dateKey = toDateKey(plan.date);
+    for (const item of plan.items) {
+      weekTarget += 1;
+      if (item.isCompleted || sessionDayKeys.has(`${item.problemId}|${dateKey}`)) {
+        weekDone += 1;
+      }
+    }
+  }
+
   const availability = upcomingDates.map((date) => {
     const row = availabilityRows.find((item) => toDateKey(item.date) === toDateKey(date));
 
@@ -297,6 +319,7 @@ export async function getDashboardData() {
       })),
     })),
     weekHistory,
+    weekProgress: { done: weekDone, target: weekTarget },
     availability,
     slots,
     problems: problems.map((problem) => ({

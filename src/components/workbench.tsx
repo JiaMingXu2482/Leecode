@@ -58,7 +58,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.1.2";
+const APP_VERSION = "v1.1.3";
 const APP_UPDATED = "2026-06-25";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -1077,11 +1077,8 @@ function TaskRow({
 function MetricGrid({ data }: { data: DashboardData; completion: number }) {
   const todayCount = data.todayPlan?.items.length ?? 0;
   const todayDone = data.todayPlan?.items.filter((item) => item.isCompleted).length ?? 0;
-  const weekTarget = data.weekPlans.reduce((sum, plan) => sum + plan.items.length, 0);
-  const weekDone = data.weekPlans.reduce(
-    (sum, plan) => sum + plan.items.filter((item) => item.isCompleted).length,
-    0,
-  );
+  const weekTarget = data.weekProgress.target;
+  const weekDone = data.weekProgress.done;
   const weekPct = weekTarget ? Math.round((weekDone / weekTarget) * 100) : 0;
 
   return (
