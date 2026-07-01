@@ -8,7 +8,6 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
-  Clock3,
   Code2,
   DatabaseZap,
   ExternalLink,
@@ -58,7 +57,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.2.0";
+const APP_VERSION = "v1.2.1";
 const APP_UPDATED = "2026-07-01";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -390,7 +389,6 @@ function TodayView({
   data,
   onAdd,
   onMark,
-  completion,
 }: {
   data: DashboardData;
   onAdd: () => void;
@@ -409,7 +407,7 @@ function TodayView({
 
   return (
     <div className="space-y-5">
-      <MetricGrid data={data} completion={completion} />
+      <TodayOverview data={data} />
       <div className="flex justify-end">
         <button
           onClick={onAdd}
@@ -436,7 +434,6 @@ function TodayView({
           </div>
         )}
       </div>
-      <StudyHeatmap heatmap={data.heatmap} />
     </div>
   );
 }
@@ -1158,21 +1155,6 @@ function TaskRow({
   );
 }
 
-function MetricGrid({ data }: { data: DashboardData; completion: number }) {
-  const todayCount = data.todayPlan?.items.length ?? 0;
-  const todayDone = data.todayPlan?.items.filter((item) => item.isCompleted).length ?? 0;
-  const weekTarget = data.weekProgress.target;
-  const weekDone = data.weekProgress.done;
-  const weekPct = weekTarget ? Math.round((weekDone / weekTarget) * 100) : 0;
-
-  return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <Metric label="本周进度" value={`${weekDone}/${weekTarget}`} hint={`${weekPct}% · 本周目标题数`} />
-      <Metric label="今日题量" value={`${todayDone}/${todayCount}`} hint="已处理 / 今日题数" />
-    </div>
-  );
-}
-
 function heatLevelClass(count: number, future: boolean) {
   if (future) return "bg-transparent";
   if (count <= 0) return "bg-muted";
@@ -1182,9 +1164,17 @@ function heatLevelClass(count: number, future: boolean) {
   return "bg-emerald-500";
 }
 
-// GitHub-style contribution grid of daily study counts. Columns are weeks
-// (Monday top → Sunday bottom); darker green = more problems that day.
-function StudyHeatmap({ heatmap }: { heatmap: DashboardData["heatmap"] }) {
+// Today overview: key metrics plus a GitHub-style contribution heatmap of daily
+// study counts, all in one card. Heatmap columns are weeks (Monday top → Sunday
+// bottom); darker green = more problems studied that day.
+function TodayOverview({ data }: { data: DashboardData }) {
+  const heatmap = data.heatmap;
+  const weekTarget = data.weekProgress.target;
+  const weekDone = data.weekProgress.done;
+  const weekPct = weekTarget ? Math.round((weekDone / weekTarget) * 100) : 0;
+  const todayCount = data.todayPlan?.items.length ?? 0;
+  const todayDone = data.todayPlan?.items.filter((item) => item.isCompleted).length ?? 0;
+
   const start = new Date(`${heatmap.start}T00:00:00Z`);
   const columns = Array.from({ length: heatmap.weeks }, (_, w) =>
     Array.from({ length: 7 }, (_, r) => {
@@ -1205,43 +1195,37 @@ function StudyHeatmap({ heatmap }: { heatmap: DashboardData["heatmap"] }) {
     const prev = index > 0 ? columns[index - 1][0].month : -1;
     return month !== prev ? `${month}月` : "";
   });
-  const weekdayRowLabels = ["一", "", "三", "", "五", "", "日"];
 
   return (
     <section className="rounded-lg border border-line bg-surface p-4">
-      <div className="mb-4 grid grid-cols-3 divide-x divide-line">
-        <HeatStat label="累计完成" value={heatmap.total} />
-        <HeatStat label="本月完成" value={heatmap.month} />
-        <HeatStat label="本周完成" value={heatmap.week} />
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <OverviewStat label="本周进度" value={`${weekDone}/${weekTarget}`} hint={`${weekPct}% · 本周目标`} />
+        <OverviewStat label="今日题量" value={`${todayDone}/${todayCount}`} hint="已处理 / 今日题数" />
+        <OverviewStat label="累计完成" value={`${heatmap.total}`} />
+        <OverviewStat label="本月完成" value={`${heatmap.month}`} />
+        <OverviewStat label="本周完成" value={`${heatmap.week}`} />
       </div>
-      <div className="overflow-x-auto">
-        <div className="flex gap-1">
-          <div className="mr-1 flex flex-col gap-1 text-[9px] leading-3 text-fg-subtle">
-            {weekdayRowLabels.map((label, index) => (
-              <div key={index} className="h-3">{label}</div>
+      <div className="mt-5 border-t border-line pt-5">
+        <div className="mx-auto w-max max-w-full overflow-x-auto overflow-y-hidden">
+          <div className="flex gap-1.5">
+            {columns.map((col, index) => (
+              <div key={index} className="flex flex-col gap-1.5">
+                {col.map((cell) => (
+                  <div
+                    key={cell.key}
+                    title={cell.future ? undefined : `${cell.month}月${cell.day}日 · ${cell.count} 题`}
+                    className={`h-5 w-5 rounded-sm ${heatLevelClass(cell.count, cell.future)}`}
+                  />
+                ))}
+              </div>
             ))}
           </div>
-          <div>
-            <div className="flex gap-1">
-              {columns.map((col, index) => (
-                <div key={index} className="flex flex-col gap-1">
-                  {col.map((cell) => (
-                    <div
-                      key={cell.key}
-                      title={cell.future ? undefined : `${cell.month}月${cell.day}日 · ${cell.count} 题`}
-                      className={`h-3 w-3 rounded-sm ${heatLevelClass(cell.count, cell.future)}`}
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-            <div className="mt-1 flex gap-1">
-              {monthLabels.map((label, index) => (
-                <div key={index} className="w-3 whitespace-nowrap text-[9px] leading-none text-fg-subtle">
-                  {label}
-                </div>
-              ))}
-            </div>
+          <div className="mt-1.5 flex gap-1.5">
+            {monthLabels.map((label, index) => (
+              <div key={index} className="w-5 whitespace-nowrap text-[10px] leading-none text-fg-subtle">
+                {label}
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -1249,27 +1233,12 @@ function StudyHeatmap({ heatmap }: { heatmap: DashboardData["heatmap"] }) {
   );
 }
 
-function HeatStat({ label, value }: { label: string; value: number }) {
+function OverviewStat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="px-3 first:pl-0">
+    <div>
       <div className="text-xs font-medium text-fg-subtle">{label}</div>
       <div className="mt-1 text-2xl font-semibold tracking-tight">{value}</div>
-    </div>
-  );
-}
-
-
-function Metric({ label, value, hint, tone = "default" }: { label: string; value: string; hint: string; tone?: "default" | "warning" }) {
-  return (
-    <div className="rounded-lg border border-line bg-surface p-4">
-      <div className="flex items-center gap-2 text-xs font-medium text-fg-subtle">
-        {tone === "warning" ? <Clock3 size={14} className="text-amber-600" /> : null}
-        {label}
-      </div>
-      <div className="mt-2 flex items-end justify-between gap-2">
-        <span className="text-2xl font-semibold tracking-tight">{value}</span>
-        <span className="text-xs text-fg-subtle">{hint}</span>
-      </div>
+      {hint ? <div className="mt-0.5 text-[11px] text-fg-subtle">{hint}</div> : null}
     </div>
   );
 }
