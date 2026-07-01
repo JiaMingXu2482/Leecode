@@ -23,6 +23,7 @@ import {
   Target,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type KeyboardEvent, useState } from "react";
 import type { DashboardData } from "@/lib/dashboard-data";
@@ -57,7 +58,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.2.3";
+const APP_VERSION = "v1.2.4";
 const APP_UPDATED = "2026-07-01";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -287,9 +288,10 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
             const selected = active === item.key;
 
             return (
-              <a
+              <Link
                 key={item.key}
                 href={item.href}
+                onClick={() => setSidebarOpen(false)}
                 className={`flex h-10 items-center gap-3 rounded-md px-3 text-sm transition ${
                   selected
                     ? "bg-blue-50 font-semibold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300"
@@ -298,7 +300,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               >
                 <Icon size={17} />
                 {item.label}
-              </a>
+              </Link>
             );
           })}
         </nav>

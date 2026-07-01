@@ -116,16 +116,48 @@ export async function getDashboardData() {
     ]),
   );
 
-  // Latest session per problem in today's plan, so a regenerated plan item
-  // still surfaces the problem's history (feedback + notes) instead of looking
-  // like it was never done.
+  // Batch the remaining per-request reads into one round-trip of parallel
+  // queries instead of awaiting each in sequence — this page is force-dynamic,
+  // so getDashboardData runs on every load and every navigation.
   const todayProblemIds = todayPlan?.items.map((item) => item.problemId) ?? [];
-  const latestSessions = todayProblemIds.length
-    ? await db.studySession.findMany({
+  const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7));
+  const HEAT_WEEKS = 18;
+  const heatStart = addUtcDays(weekStart, -7 * (HEAT_WEEKS - 1));
+  const [latestSessions, todayDoneSessions, recentSessions, weekProgressPlans, heatSessions] =
+    await Promise.all([
+      // Latest sessions for today's plan problems, so a regenerated plan item
+      // still surfaces its history (feedback + notes). Empty `in` returns [].
+      db.studySession.findMany({
         where: { problemId: { in: todayProblemIds } },
         orderBy: { completedAt: "desc" },
-      })
-    : [];
+      }),
+      // Everything studied today (for the "done but dropped from plan" rows).
+      db.studySession.findMany({
+        where: { completedAt: { gte: today } },
+        orderBy: { completedAt: "desc" },
+        include: {
+          problem: {
+            select: { id: true, frontendId: true, titleCn: true, difficulty: true, leetcodeCnUrl: true },
+          },
+        },
+      }),
+      // Recent sessions for the weekly history board + session-day completion.
+      db.studySession.findMany({
+        where: { completedAt: { gte: addUtcDays(today, -13) } },
+        orderBy: { completedAt: "desc" },
+        include: { problem: { select: { id: true, frontendId: true, titleCn: true, difficulty: true } } },
+      }),
+      // This calendar week's plans, for "本周进度".
+      db.dailyPlan.findMany({
+        where: { date: { gte: weekStart, lt: addUtcDays(weekStart, 7) } },
+        include: { items: { select: { problemId: true, isCompleted: true } } },
+      }),
+      // Daily counts for the contribution heatmap.
+      db.studySession.findMany({
+        where: { completedAt: { gte: heatStart } },
+        select: { completedAt: true },
+      }),
+    ]);
   const sessionsByProblem = new Map<string, typeof latestSessions>();
   // Today's session per problem (latest), so completion/notes survive a re-plan:
   // a task counts as done today if there's a session for it completed today,
@@ -144,15 +176,6 @@ export async function getDashboardData() {
   // them after they were already done. Surface them so today's work never
   // disappears from the list.
   const plannedTodayIds = new Set(todayProblemIds);
-  const todayDoneSessions = await db.studySession.findMany({
-    where: { completedAt: { gte: today } },
-    orderBy: { completedAt: "desc" },
-    include: {
-      problem: {
-        select: { id: true, frontendId: true, titleCn: true, difficulty: true, leetcodeCnUrl: true },
-      },
-    },
-  });
   const seenExtra = new Set<string>();
   const todayExtra = todayDoneSessions
     .filter((session) => {
@@ -174,11 +197,6 @@ export async function getDashboardData() {
     }));
 
   // Recent study sessions grouped by day for the weekly history board.
-  const recentSessions = await db.studySession.findMany({
-    where: { completedAt: { gte: addUtcDays(today, -13) } },
-    orderBy: { completedAt: "desc" },
-    include: { problem: { select: { id: true, frontendId: true, titleCn: true, difficulty: true } } },
-  });
   const weekHistoryMap = new Map<
     string,
     { problemId: string; frontendId: number; titleCn: string; difficulty: string; kind: string; feelingScore: number | null; noteMarkdown: string; noteSyntax: string; completedAt: string }[]
@@ -211,13 +229,7 @@ export async function getDashboardData() {
   // "本周进度" over the actual calendar week (Monday–Sunday of the week
   // containing today), not the next-7-days window. Days already passed this
   // week — e.g. yesterday — still count, and a planned problem is done if it
-  // was studied that day (survives a re-plan). Weekly plans query is anchored
-  // at today, so past days of the week are fetched separately here.
-  const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7));
-  const weekProgressPlans = await db.dailyPlan.findMany({
-    where: { date: { gte: weekStart, lt: addUtcDays(weekStart, 7) } },
-    include: { items: { select: { problemId: true, isCompleted: true } } },
-  });
+  // was studied that day (survives a re-plan).
   let weekDone = 0;
   let weekTarget = 0;
   for (const plan of weekProgressPlans) {
@@ -232,12 +244,6 @@ export async function getDashboardData() {
 
   // Contribution-style heatmap: per-day study-session counts over the last
   // HEAT_WEEKS calendar weeks (Monday-anchored, so each column is one week).
-  const HEAT_WEEKS = 18;
-  const heatStart = addUtcDays(weekStart, -7 * (HEAT_WEEKS - 1));
-  const heatSessions = await db.studySession.findMany({
-    where: { completedAt: { gte: heatStart } },
-    select: { completedAt: true },
-  });
   const heatCounts: Record<string, number> = {};
   for (const session of heatSessions) {
     const key = toDateKey(session.completedAt);
