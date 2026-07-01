@@ -11,6 +11,9 @@ export async function getDashboardData() {
   const db = getDb();
   const today = startOfUtcDay(new Date());
   const upcomingDates = nextNDays(7, today);
+  // Current calendar week, Monday–Saturday (Sunday is a rest day, not shown).
+  const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7));
+  const weekDays = Array.from({ length: 6 }, (_, index) => addUtcDays(weekStart, index));
   const [
     todayPlan,
     availabilityRows,
@@ -87,7 +90,7 @@ export async function getDashboardData() {
         _count: { _all: true },
       }),
       db.dailyPlan.findMany({
-        where: { date: { gte: today, lt: addUtcDays(today, 7) } },
+        where: { date: { gte: weekStart, lt: addUtcDays(weekStart, 6) } },
         orderBy: { date: "asc" },
         include: {
           items: {
@@ -120,7 +123,6 @@ export async function getDashboardData() {
   // queries instead of awaiting each in sequence — this page is force-dynamic,
   // so getDashboardData runs on every load and every navigation.
   const todayProblemIds = todayPlan?.items.map((item) => item.problemId) ?? [];
-  const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7));
   const HEAT_WEEKS = 18;
   const heatStart = addUtcDays(weekStart, -7 * (HEAT_WEEKS - 1));
   const [latestSessions, todayDoneSessions, recentSessions, weekProgressPlans, heatSessions] =
@@ -263,7 +265,7 @@ export async function getDashboardData() {
     }
   }
 
-  const availability = upcomingDates.map((date) => {
+  const availability = weekDays.map((date) => {
     const row = availabilityRows.find((item) => toDateKey(item.date) === toDateKey(date));
 
     return {

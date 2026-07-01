@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowRight,
   ArrowUpDown,
   BarChart3,
   BookOpen,
@@ -11,6 +10,7 @@ import {
   Code2,
   DatabaseZap,
   ExternalLink,
+  GripVertical,
   ListChecks,
   LogOut,
   Moon,
@@ -18,6 +18,7 @@ import {
   PanelLeft,
   Plus,
   RefreshCw,
+  Search,
   Settings2,
   Sun,
   Target,
@@ -25,7 +26,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type KeyboardEvent, useState } from "react";
+import { type DragEvent, type KeyboardEvent, useState } from "react";
 import type { DashboardData } from "@/lib/dashboard-data";
 import { TOPIC_GROUPS } from "@/lib/topics";
 
@@ -58,7 +59,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.2.6";
+const APP_VERSION = "v1.3.0";
 const APP_UPDATED = "2026-07-01";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -182,15 +183,38 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
     return payload.weekPlans;
   }
 
-  // Push a single problem to the next day (skip Sunday) without reshuffling.
-  async function deferItem(id: string) {
-    setBusy(`/api/plan-items/${id}/defer`);
+  // Move a single problem to a specific day (drag-and-drop) without reshuffling.
+  async function moveItem(id: string, date: string) {
+    setBusy(`/api/plan-items/${id}/move`);
     setMessage("");
-    const response = await fetch(`/api/plan-items/${id}/defer`, { method: "POST" });
+    const response = await fetch(`/api/plan-items/${id}/move`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ date }),
+    });
     setBusy("");
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as { error?: string };
-      setMessage(payload.error ?? "操作失败");
+      setMessage(payload.error ?? "移动失败");
+      return null;
+    }
+    const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
+    return payload.weekPlans;
+  }
+
+  // Add a specific problem to a specific day (drag a search result onto a day).
+  async function addProblemToDay(date: string, problemId: string) {
+    setBusy("/api/plans/add-problem");
+    setMessage("");
+    const response = await fetch("/api/plans/add-problem", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ date, problemId }),
+    });
+    setBusy("");
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      setMessage(payload.error ?? "添加失败");
       return null;
     }
     const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
@@ -366,9 +390,11 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               days={data.availability}
               initialPlans={data.weekPlans}
               history={data.weekHistory}
+              problems={data.problems}
               onGenerate={generateWeekly}
               onAddOne={addOneToDay}
-              onDefer={deferItem}
+              onMove={moveItem}
+              onAddProblem={addProblemToDay}
               busy={Boolean(busy)}
             />
           ) : null}
@@ -490,57 +516,91 @@ function WeeklyView({
   days,
   initialPlans,
   history,
+  problems,
   onGenerate,
   onAddOne,
-  onDefer,
+  onMove,
+  onAddProblem,
   busy,
 }: {
   days: WeekDay[];
   initialPlans: WeekPlans;
   history: DashboardData["weekHistory"];
+  problems: DashboardData["problems"];
   onGenerate: (counts: Record<string, number>) => Promise<WeekPlans | null>;
   onAddOne: (date: string) => Promise<WeekPlans | null>;
-  onDefer: (id: string) => Promise<WeekPlans | null>;
+  onMove: (id: string, date: string) => Promise<WeekPlans | null>;
+  onAddProblem: (date: string, problemId: string) => Promise<WeekPlans | null>;
   busy: boolean;
 }) {
   const [plans, setPlans] = useState(initialPlans);
+  const [query, setQuery] = useState("");
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const plansByDate = new Map(plans.map((plan) => [plan.date, plan.items]));
   const todayKey = days[0]?.date ?? "";
   const pastDays = history.filter((day) => day.date < todayKey);
 
+  const q = query.trim();
+  const results = q
+    ? problems
+        .filter(
+          (problem) =>
+            problem.isEnabled !== false &&
+            (problem.titleCn.includes(q) || String(problem.frontendId).includes(q)),
+        )
+        .slice(0, 12)
+    : [];
+
   async function addOne(date: string) {
     const result = await onAddOne(date);
-    if (result) {
-      setPlans(result);
-    }
+    if (result) setPlans(result);
   }
 
-  async function defer(id: string) {
-    const result = await onDefer(id);
-    if (result) {
-      setPlans(result);
+  async function move(id: string, date: string) {
+    const result = await onMove(id, date);
+    if (result) setPlans(result);
+  }
+
+  async function addProblem(date: string, problemId: string) {
+    const result = await onAddProblem(date, problemId);
+    if (result) setPlans(result);
+  }
+
+  function onDropDay(date: string, event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragOverDate(null);
+    const raw = event.dataTransfer.getData("application/json");
+    if (!raw) return;
+    let payload: { kind?: string; id?: string; problemId?: string };
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (payload.kind === "move" && payload.id) {
+      void move(payload.id, date);
+    } else if (payload.kind === "add" && payload.problemId) {
+      void addProblem(date, payload.problemId);
     }
   }
 
   // Deliberate full re-plan of the week, keeping each day's current size (blank
-  // non-Sunday days default to DEFAULT_DAILY_COUNT so they get seeded).
+  // days default to DEFAULT_DAILY_COUNT so they get seeded).
   async function regenerate() {
     const counts: Record<string, number> = {};
     for (const day of days) {
       const len = plansByDate.get(day.date)?.length ?? 0;
-      counts[day.date] = day.weekday === 0 ? 0 : len > 0 ? len : DEFAULT_DAILY_COUNT;
+      counts[day.date] = len > 0 ? len : DEFAULT_DAILY_COUNT;
     }
     const result = await onGenerate(counts);
-    if (result) {
-      setPlans(result);
-    }
+    if (result) setPlans(result);
   }
 
   return (
     <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-fg-subtle">
-          按艾宾浩斯遗忘曲线排题（到期/逾期复习优先，其次新题）。周日休息不排题；点某题的「往后排」可把它顺延到下一天。
+          拖动题目到别的一天即可移动；用下面的搜索框把任意一题拖到某天加入。周日休息，不排题。
         </p>
         <button
           onClick={regenerate}
@@ -553,39 +613,88 @@ function WeeklyView({
         </button>
       </div>
       <div>
-        <h3 className="mb-3 text-sm font-semibold text-fg">未来计划</h3>
+        <div className="relative">
+          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索题目（题号或名称），把结果拖到某一天加入计划"
+            className="h-9 w-full rounded-md border border-line bg-surface pl-9 pr-3 text-sm outline-none focus:border-line-strong"
+          />
+        </div>
+        {q ? (
+          results.length ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {results.map((problem) => (
+                <div
+                  key={problem.id}
+                  draggable
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData(
+                      "application/json",
+                      JSON.stringify({ kind: "add", problemId: problem.id }),
+                    );
+                    event.dataTransfer.effectAllowed = "copy";
+                  }}
+                  className="flex cursor-grab items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs active:cursor-grabbing"
+                  title="拖到某一天加入计划"
+                >
+                  <GripVertical size={12} className="shrink-0 text-fg-subtle" />
+                  <span className="font-mono text-[11px] text-fg-subtle">#{problem.frontendId}</span>
+                  <span className="max-w-[11rem] truncate">{problem.titleCn}</span>
+                  <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${difficultyClass[problem.difficulty]}`}>
+                    {problem.difficulty === "EASY" ? "易" : problem.difficulty === "MEDIUM" ? "中" : "难"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-fg-subtle">没有匹配的题目。</p>
+          )
+        ) : null}
+      </div>
+
+      <div>
+        <h3 className="mb-3 text-sm font-semibold text-fg">本周计划</h3>
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(260px,1fr))]">
           {days.map((day) => {
-            const isSunday = day.weekday === 0;
             const items = plansByDate.get(day.date) ?? [];
+            const isOver = dragOverDate === day.date;
             return (
-              <div key={day.date} className="rounded-lg border border-line bg-surface p-3">
+              <div
+                key={day.date}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  if (dragOverDate !== day.date) setDragOverDate(day.date);
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+                    setDragOverDate((current) => (current === day.date ? null : current));
+                  }
+                }}
+                onDrop={(event) => onDropDay(day.date, event)}
+                className={`rounded-lg border bg-surface p-3 transition-colors ${
+                  isOver ? "border-blue-400 ring-1 ring-blue-400/40" : "border-line"
+                }`}
+              >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-baseline gap-2">
                     <span className="text-sm font-semibold">{weekdayLabels[day.weekday]}</span>
                     <span className="text-xs text-fg-subtle">{formatYmd(day.date)}</span>
                   </div>
-                  {isSunday ? (
-                    <span className="text-xs text-fg-subtle">休息日</span>
-                  ) : (
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-6 text-center text-sm font-semibold tabular-nums">{items.length}</span>
-                      <button
-                        onClick={() => addOne(day.date)}
-                        disabled={busy || items.length >= 30}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-line text-fg-muted hover:bg-muted disabled:opacity-40"
-                        title="追加一题（不打乱已排的题）"
-                      >
-                        <Plus size={14} />
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-6 text-center text-sm font-semibold tabular-nums">{items.length}</span>
+                    <button
+                      onClick={() => addOne(day.date)}
+                      disabled={busy || items.length >= 30}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-line text-fg-muted hover:bg-muted disabled:opacity-40"
+                      title="追加一题（不打乱已排的题）"
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
                 </div>
-                {isSunday ? (
-                  <p className="mt-3 border-t border-line pt-3 text-xs text-fg-subtle">周日休息，不安排题目。</p>
-                ) : (
-                  <DayPlanList items={items} onDefer={defer} busy={busy} />
-                )}
+                <DayPlanList items={items} />
               </div>
             );
           })}
@@ -723,15 +832,7 @@ function HistoryEntry({ entry }: { entry: DashboardData["weekHistory"][number]["
   );
 }
 
-function DayPlanList({
-  items,
-  onDefer,
-  busy,
-}: {
-  items: DashboardData["weekPlans"][number]["items"];
-  onDefer: (id: string) => void;
-  busy: boolean;
-}) {
+function DayPlanList({ items }: { items: DashboardData["weekPlans"][number]["items"] }) {
   const totalMinutes = items.reduce((sum, item) => sum + item.estimatedMinutes, 0);
 
   return (
@@ -743,10 +844,30 @@ function DayPlanList({
       {items.length ? (
         <ul className="space-y-1.5">
           {items.map((item) => (
-            <li key={item.id} className="flex items-center gap-1">
+            <li
+              key={item.id}
+              draggable={!item.isCompleted}
+              onDragStart={(event) => {
+                event.dataTransfer.setData(
+                  "application/json",
+                  JSON.stringify({ kind: "move", id: item.id }),
+                );
+                event.dataTransfer.effectAllowed = "move";
+              }}
+              className={`flex items-center gap-1 rounded-md pr-1 ${
+                item.isCompleted ? "" : "cursor-grab hover:bg-muted active:cursor-grabbing"
+              }`}
+              title={item.isCompleted ? undefined : "拖到别的一天即可移动"}
+            >
+              {item.isCompleted ? (
+                <span className="h-3.5 w-3.5 shrink-0" />
+              ) : (
+                <GripVertical size={13} className="shrink-0 text-fg-subtle" />
+              )}
               <a
                 href={`/problems/${item.problem.id}`}
-                className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-muted"
+                draggable={false}
+                className="flex min-w-0 flex-1 items-center gap-1.5 py-1"
                 title="查看这道题的历史笔记"
               >
                 <span className="font-mono text-[11px] text-fg-subtle">#{item.problem.frontendId}</span>
@@ -763,21 +884,11 @@ function DayPlanList({
                 <span className="shrink-0 text-[10px] text-fg-subtle">{kindLabel[item.kind]}</span>
                 {item.isCompleted ? <Check size={12} className="shrink-0 text-emerald-500" /> : null}
               </a>
-              {item.isCompleted ? null : (
-                <button
-                  onClick={() => onDefer(item.id)}
-                  disabled={busy}
-                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-line text-fg-subtle hover:bg-muted disabled:opacity-40"
-                  title="往后排一天（今天不做这题）"
-                >
-                  <ArrowRight size={12} />
-                </button>
-              )}
             </li>
           ))}
         </ul>
       ) : (
-        <p className="text-xs text-fg-subtle">点右上角「+」追加一题，或用「重排本周」自动排题。</p>
+        <p className="text-xs text-fg-subtle">把题目拖到这里，或点右上角「+」追加一题。</p>
       )}
     </div>
   );

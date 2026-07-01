@@ -1,13 +1,15 @@
-import { addUtcDays, toDateKey } from "@/lib/dates";
+import { addUtcDays, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 
-// Shape returned to the weekly view. Mirrors what /api/plans/generate returns so
-// the client can setPlans() after a defer / append-one without a full reload.
+// Shape returned to the weekly view (current calendar week, Monday–Saturday).
+// Mirrors dashboard-data's weekPlans so the client can setPlans() after a
+// move / append / add without a full reload.
 export async function loadWeekPlans(today: Date) {
   const db = getDb();
+  const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7));
   const [weekDailyPlans, recentSessions] = await Promise.all([
     db.dailyPlan.findMany({
-      where: { date: { gte: today, lt: addUtcDays(today, 7) } },
+      where: { date: { gte: weekStart, lt: addUtcDays(weekStart, 6) } },
       orderBy: { date: "asc" },
       include: {
         items: {

@@ -4,6 +4,7 @@ import { addUtcDays, nextNDays, startOfUtcDay, toDateKey, weekdayIndex } from "@
 import { isAuthorizedRequest } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { calculateReviewRiskScore } from "@/lib/risk";
+import { loadWeekPlans } from "@/lib/week-plans";
 
 type CandidateKind = "review" | "retest" | "new";
 
@@ -182,43 +183,6 @@ export async function POST(request: NextRequest) {
     ),
   );
 
-  const weekDailyPlans = await db.dailyPlan.findMany({
-    where: { date: { gte: today, lt: endExclusive } },
-    orderBy: { date: "asc" },
-    include: {
-      items: {
-        orderBy: { sortOrder: "asc" },
-        include: {
-          problem: {
-            select: {
-              id: true,
-              frontendId: true,
-              titleCn: true,
-              difficulty: true,
-              leetcodeCnUrl: true,
-            },
-          },
-        },
-      },
-    },
-  });
-  const weekPlans = weekDailyPlans.map((plan) => ({
-    date: toDateKey(plan.date),
-    totalEstimatedMinutes: plan.totalEstimatedMinutes,
-    items: plan.items.map((item) => ({
-      id: item.id,
-      kind: item.kind,
-      estimatedMinutes: item.estimatedMinutes,
-      isCompleted: item.isCompleted,
-      problem: {
-        id: item.problem.id,
-        frontendId: item.problem.frontendId,
-        titleCn: item.problem.titleCn,
-        difficulty: item.problem.difficulty,
-        leetcodeCnUrl: item.problem.leetcodeCnUrl,
-      },
-    })),
-  }));
-
+  const weekPlans = await loadWeekPlans(today);
   return NextResponse.json({ weekPlans });
 }
