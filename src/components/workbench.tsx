@@ -57,7 +57,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.2.2";
+const APP_VERSION = "v1.2.3";
 const APP_UPDATED = "2026-07-01";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -444,24 +444,43 @@ function TodayView({
 }
 
 // A problem studied today that is no longer in today's plan (e.g. a re-plan
-// dropped it). Read-only — its notes live on the problem detail page.
+// dropped it). Same row style as a completed TaskRow, but read-only — its notes
+// live on the problem detail page (there's no plan item left to re-edit).
 function ExtraDoneRow({ extra }: { extra: DashboardData["todayExtra"][number] }) {
   return (
-    <div className="flex items-center gap-3 px-4 py-3">
-      <span className={`shrink-0 rounded px-2 py-0.5 text-xs font-semibold ${difficultyClass[extra.difficulty as keyof typeof difficultyClass]}`}>
-        {difficultyCn[extra.difficulty as keyof typeof difficultyCn]}
-      </span>
-      <a href={`/problems/${extra.problemId}`} className="min-w-0 flex-1 truncate font-medium hover:text-blue-600 dark:hover:text-blue-400">
-        <span className="mr-1 font-mono text-xs text-fg-subtle">#{extra.frontendId}</span>
-        {extra.titleCn}
-      </a>
-      <span className="shrink-0 text-xs text-fg-subtle">{kindLabel[extra.kind as keyof typeof kindLabel]}</span>
-      {typeof extra.feelingScore === "number" ? (
-        <span className="shrink-0 text-xs text-fg-subtle">反馈 {extra.feelingScore}/5</span>
-      ) : null}
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
-        <Check size={13} /> 已完成
-      </span>
+    <div className="flex flex-col gap-3 px-3 py-3 lg:flex-row lg:items-center lg:gap-4">
+      <div className="min-w-0 lg:flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge className={difficultyClass[extra.difficulty as keyof typeof difficultyClass]}>
+            {difficultyCn[extra.difficulty as keyof typeof difficultyCn]}
+          </Badge>
+          <span className="font-mono text-xs text-fg-subtle">#{extra.frontendId}</span>
+          <a href={extra.leetcodeCnUrl} target="_blank" className="font-medium text-fg break-words hover:text-blue-400">
+            {extra.titleCn}
+          </a>
+          <span className="text-xs text-fg-subtle">{kindLabel[extra.kind as keyof typeof kindLabel]}</span>
+          <span className="inline-flex items-center gap-1 text-xs text-fg-subtle">
+            <BarChart3 size={13} /> 反馈均分 {(extra.avgFeelingScore ?? 5).toFixed(1)}
+          </span>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 lg:w-[260px] lg:shrink-0">
+        <a
+          href={`/problems/${extra.problemId}`}
+          title="查看做题记录与笔记"
+          className="inline-flex h-9 w-full items-center justify-center whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-50 px-2 text-sm font-medium text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300"
+        >
+          已完成
+        </a>
+        <a
+          href={extra.leetcodeCnUrl}
+          target="_blank"
+          className="inline-flex h-9 w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-line-strong px-2 text-sm font-medium text-fg hover:bg-muted"
+        >
+          <ExternalLink size={14} />
+          去刷题
+        </a>
+      </div>
     </div>
   );
 }

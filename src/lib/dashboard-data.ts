@@ -170,6 +170,7 @@ export async function getDashboardData() {
       leetcodeCnUrl: session.problem.leetcodeCnUrl,
       kind: session.kind,
       feelingScore: session.feelingScore,
+      avgFeelingScore: feelingStatMap.get(session.problemId)?.avg ?? null,
     }));
 
   // Recent study sessions grouped by day for the weekly history board.
