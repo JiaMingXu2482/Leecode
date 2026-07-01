@@ -89,14 +89,32 @@ export async function POST(request: NextRequest) {
     })),
   ];
 
-  // Walk days in order, pulling each day's quota off the front of the queue so
-  // earlier days get the most-due reviews first.
+  // Already-completed items are kept as-is: re-planning must never delete a
+  // problem the user has already done that day. Only the not-yet-done slots get
+  // regenerated from the queue.
+  const existingPlans = await db.dailyPlan.findMany({
+    where: { date: { gte: today, lt: endExclusive } },
+    include: { items: { where: { isCompleted: true }, select: { problemId: true, estimatedMinutes: true } } },
+  });
+  const keptByDate = new Map<string, { problemId: string; estimatedMinutes: number }[]>();
   const assigned = new Set<string>();
+  for (const plan of existingPlans) {
+    keptByDate.set(toDateKey(plan.date), plan.items);
+    for (const item of plan.items) {
+      assigned.add(item.problemId);
+    }
+  }
+
+  // Walk days in order, pulling each day's remaining quota off the front of the
+  // queue so earlier days get the most-due reviews first.
   let cursor = 0;
   const perDay = dates.map((date) => {
-    const quota = counts.get(toDateKey(date)) ?? 0;
+    const key = toDateKey(date);
+    const kept = keptByDate.get(key) ?? [];
+    const quota = counts.get(key) ?? 0;
+    const remaining = Math.max(0, quota - kept.length);
     const items: Candidate[] = [];
-    while (items.length < quota && cursor < queue.length) {
+    while (items.length < remaining && cursor < queue.length) {
       const candidate = queue[cursor];
       cursor += 1;
       if (assigned.has(candidate.problemId)) {
@@ -105,17 +123,18 @@ export async function POST(request: NextRequest) {
       assigned.add(candidate.problemId);
       items.push(candidate);
     }
-    return { date, items };
+    return { date, kept, items };
   });
 
-  for (const { date, items } of perDay) {
-    const totalMinutes = items.reduce((sum, item) => sum + item.estimatedMinutes, 0);
+  for (const { date, kept, items } of perDay) {
+    const keptMinutes = kept.reduce((sum, item) => sum + item.estimatedMinutes, 0);
+    const totalMinutes = keptMinutes + items.reduce((sum, item) => sum + item.estimatedMinutes, 0);
     const dailyPlan = await db.dailyPlan.upsert({
       where: { date },
       update: {
         availableMinutes: totalMinutes,
         totalEstimatedMinutes: totalMinutes,
-        items: { deleteMany: {} },
+        items: { deleteMany: { isCompleted: false } },
       },
       create: {
         date,
@@ -124,7 +143,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    let sortOrder = 1;
+    let sortOrder = kept.length + 1;
     for (const item of items) {
       await db.planItem.create({
         data: {

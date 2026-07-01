@@ -140,6 +140,38 @@ export async function getDashboardData() {
     }
   }
 
+  // Problems studied today that are NOT in today's plan — e.g. a re-plan dropped
+  // them after they were already done. Surface them so today's work never
+  // disappears from the list.
+  const plannedTodayIds = new Set(todayProblemIds);
+  const todayDoneSessions = await db.studySession.findMany({
+    where: { completedAt: { gte: today } },
+    orderBy: { completedAt: "desc" },
+    include: {
+      problem: {
+        select: { id: true, frontendId: true, titleCn: true, difficulty: true, leetcodeCnUrl: true },
+      },
+    },
+  });
+  const seenExtra = new Set<string>();
+  const todayExtra = todayDoneSessions
+    .filter((session) => {
+      if (plannedTodayIds.has(session.problemId) || seenExtra.has(session.problemId)) {
+        return false;
+      }
+      seenExtra.add(session.problemId);
+      return true;
+    })
+    .map((session) => ({
+      problemId: session.problemId,
+      frontendId: session.problem.frontendId,
+      titleCn: session.problem.titleCn,
+      difficulty: session.problem.difficulty,
+      leetcodeCnUrl: session.problem.leetcodeCnUrl,
+      kind: session.kind,
+      feelingScore: session.feelingScore,
+    }));
+
   // Recent study sessions grouped by day for the weekly history board.
   const recentSessions = await db.studySession.findMany({
     where: { completedAt: { gte: addUtcDays(today, -13) } },
@@ -346,6 +378,7 @@ export async function getDashboardData() {
       })),
     })),
     weekHistory,
+    todayExtra,
     weekProgress: { done: weekDone, target: weekTarget },
     heatmap: {
       start: toDateKey(heatStart),

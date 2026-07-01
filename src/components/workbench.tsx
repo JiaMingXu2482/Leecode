@@ -57,7 +57,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.2.1";
+const APP_VERSION = "v1.2.2";
 const APP_UPDATED = "2026-07-01";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -420,12 +420,17 @@ function TodayView({
       <div className="rounded-lg border border-line bg-surface">
         <div className="relative flex items-center justify-center border-b border-line px-4 py-3">
           <h2 className="text-sm font-semibold">{dateLabel}</h2>
-          <span className="absolute right-4 text-sm text-fg-subtle">{data.todayPlan ? `${items.length} 题` : "未生成"}</span>
+          <span className="absolute right-4 text-sm text-fg-subtle">
+            {data.todayPlan || data.todayExtra.length ? `${items.length + data.todayExtra.length} 题` : "未生成"}
+          </span>
         </div>
-        {items.length ? (
+        {items.length || data.todayExtra.length ? (
           <div className="divide-y divide-line">
             {items.map((item) => (
               <TaskRow key={item.id} item={item} onMark={onMark} />
+            ))}
+            {data.todayExtra.map((extra) => (
+              <ExtraDoneRow key={extra.problemId} extra={extra} />
             ))}
           </div>
         ) : (
@@ -434,6 +439,29 @@ function TodayView({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// A problem studied today that is no longer in today's plan (e.g. a re-plan
+// dropped it). Read-only — its notes live on the problem detail page.
+function ExtraDoneRow({ extra }: { extra: DashboardData["todayExtra"][number] }) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3">
+      <span className={`shrink-0 rounded px-2 py-0.5 text-xs font-semibold ${difficultyClass[extra.difficulty as keyof typeof difficultyClass]}`}>
+        {difficultyCn[extra.difficulty as keyof typeof difficultyCn]}
+      </span>
+      <a href={`/problems/${extra.problemId}`} className="min-w-0 flex-1 truncate font-medium hover:text-blue-600 dark:hover:text-blue-400">
+        <span className="mr-1 font-mono text-xs text-fg-subtle">#{extra.frontendId}</span>
+        {extra.titleCn}
+      </a>
+      <span className="shrink-0 text-xs text-fg-subtle">{kindLabel[extra.kind as keyof typeof kindLabel]}</span>
+      {typeof extra.feelingScore === "number" ? (
+        <span className="shrink-0 text-xs text-fg-subtle">反馈 {extra.feelingScore}/5</span>
+      ) : null}
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+        <Check size={13} /> 已完成
+      </span>
     </div>
   );
 }
@@ -1172,8 +1200,9 @@ function TodayOverview({ data }: { data: DashboardData }) {
   const weekTarget = data.weekProgress.target;
   const weekDone = data.weekProgress.done;
   const weekPct = weekTarget ? Math.round((weekDone / weekTarget) * 100) : 0;
-  const todayCount = data.todayPlan?.items.length ?? 0;
-  const todayDone = data.todayPlan?.items.filter((item) => item.isCompleted).length ?? 0;
+  const extraDone = data.todayExtra.length;
+  const todayCount = (data.todayPlan?.items.length ?? 0) + extraDone;
+  const todayDone = (data.todayPlan?.items.filter((item) => item.isCompleted).length ?? 0) + extraDone;
 
   const start = new Date(`${heatmap.start}T00:00:00Z`);
   const columns = Array.from({ length: heatmap.weeks }, (_, w) =>
