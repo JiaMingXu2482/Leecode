@@ -1,21 +1,18 @@
 import { PlanItemKind } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
-import { addUtcDays, nextNDays, startOfUtcDay, toDateKey, weekdayIndex } from "@/lib/dates";
+import { addUtcDays, startOfUtcDay, toDateKey, weekdayIndex } from "@/lib/dates";
 import { isAuthorizedRequest } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { calculateReviewRiskScore } from "@/lib/risk";
 import { loadWeekPlans } from "@/lib/week-plans";
 
 type CandidateKind = "review" | "retest" | "new";
+type Candidate = { problemId: string; kind: CandidateKind; estimatedMinutes: number };
 
-type Candidate = {
-  problemId: string;
-  kind: CandidateKind;
-  estimatedMinutes: number;
-};
-
-const DEFAULT_DAILY_COUNT = 3;
-const MAX_DAILY_COUNT = 30;
+// Fixed number of NEW problems scheduled per study day (the user wants to finish
+// the plan within a month). Reviews are placed on their due day on top of this,
+// with no per-day cap.
+const NEW_PER_DAY = 3;
 
 function planKind(kind: CandidateKind): PlanItemKind {
   if (kind === "review") return "REVIEW";
@@ -28,71 +25,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  const body = (await request.json().catch(() => ({}))) as {
-    counts?: Record<string, number>;
-    dailyCount?: number;
-  };
   const db = getDb();
   const today = startOfUtcDay(new Date());
-  const dates = nextNDays(7, today);
-  const endExclusive = addUtcDays(today, 7);
+  const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7)); // Monday
+  const saturday = addUtcDays(weekStart, 5);
+  const endExclusive = addUtcDays(saturday, 1);
 
-  // Desired number of problems per day. Sunday is a rest day — never scheduled.
-  const counts = new Map<string, number>();
-  for (const date of dates) {
-    const key = toDateKey(date);
-    if (weekdayIndex(date) === 0) {
-      counts.set(key, 0);
-      continue;
+  // Plan the remaining study days of this week: today → Saturday (Sunday rests).
+  const windowDates: Date[] = [];
+  for (let d = new Date(today); d.getTime() <= saturday.getTime(); d = addUtcDays(d, 1)) {
+    if (weekdayIndex(d) !== 0) {
+      windowDates.push(new Date(d));
     }
-    const raw = body.counts?.[key];
-    const value = typeof raw === "number" ? raw : body.dailyCount ?? DEFAULT_DAILY_COUNT;
-    counts.set(key, Math.max(0, Math.min(MAX_DAILY_COUNT, Math.floor(value))));
   }
+  if (windowDates.length === 0) {
+    return NextResponse.json({ weekPlans: await loadWeekPlans(today) });
+  }
+  const firstKey = toDateKey(windowDates[0]);
+  const lastKey = toDateKey(saturday);
 
-  // Candidates, ordered by the Ebbinghaus schedule: due/overdue reviews first
-  // (earliest next-review date, then highest risk), then untouched new problems.
-  const schedules = await db.reviewSchedule.findMany({
-    where: { problem: { isEnabled: true } },
-    include: { problem: { include: { progress: true } } },
-    orderBy: { nextReviewDate: "asc" },
-  });
-  const reviewCandidates = schedules
-    .map((schedule) => ({
-      problemId: schedule.problemId,
-      kind: (schedule.stage === 0 ? "retest" : "review") as CandidateKind,
-      estimatedMinutes: schedule.problem.estimatedReviewMinutes,
-      dueAt: schedule.nextReviewDate.getTime(),
-      risk: schedule.problem.progress?.reviewRiskScore ?? 0,
-    }))
-    .sort((a, b) => a.dueAt - b.dueAt || b.risk - a.risk);
-
-  const newProblems = await db.problem.findMany({
-    where: {
-      isEnabled: true,
-      reviewSchedule: null,
-      OR: [{ progress: null }, { progress: { is: { isAccepted: false } } }],
-    },
-    orderBy: { hot100Order: "asc" },
-    take: 120,
-  });
-
-  const queue: Candidate[] = [
-    ...reviewCandidates.map(({ problemId, kind, estimatedMinutes }) => ({
-      problemId,
-      kind,
-      estimatedMinutes,
-    })),
-    ...newProblems.map((problem) => ({
-      problemId: problem.id,
-      kind: "new" as CandidateKind,
-      estimatedMinutes: problem.estimatedNewMinutes,
-    })),
-  ];
-
-  // Already-completed items are kept as-is: re-planning must never delete a
-  // problem the user has already done that day. Only the not-yet-done slots get
-  // regenerated from the queue.
+  // Preserve already-completed items — re-planning must never drop done work.
   const existingPlans = await db.dailyPlan.findMany({
     where: { date: { gte: today, lt: endExclusive } },
     include: { items: { where: { isCompleted: true }, select: { problemId: true, estimatedMinutes: true } } },
@@ -106,30 +58,67 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Walk days in order, pulling each day's remaining quota off the front of the
-  // queue so earlier days get the most-due reviews first.
+  // Reviews land on their due day (overdue ones catch up on today); anything due
+  // after this Saturday waits for a later week.
+  const schedules = await db.reviewSchedule.findMany({
+    where: { problem: { isEnabled: true } },
+    include: { problem: { select: { estimatedReviewMinutes: true } } },
+    orderBy: { nextReviewDate: "asc" },
+  });
+  const reviewsByDate = new Map<string, Candidate[]>();
+  for (const schedule of schedules) {
+    if (assigned.has(schedule.problemId)) {
+      continue;
+    }
+    let dueKey = toDateKey(startOfUtcDay(schedule.nextReviewDate));
+    if (dueKey < firstKey) {
+      dueKey = firstKey; // overdue → today
+    }
+    if (dueKey > lastKey || weekdayIndex(new Date(`${dueKey}T00:00:00Z`)) === 0) {
+      continue;
+    }
+    assigned.add(schedule.problemId);
+    const list = reviewsByDate.get(dueKey) ?? [];
+    list.push({
+      problemId: schedule.problemId,
+      kind: schedule.stage === 0 ? "retest" : "review",
+      estimatedMinutes: schedule.problem.estimatedReviewMinutes,
+    });
+    reviewsByDate.set(dueKey, list);
+  }
+
+  // New problems: NEW_PER_DAY per study day, in Hot100 order.
+  const newProblems = await db.problem.findMany({
+    where: {
+      isEnabled: true,
+      reviewSchedule: null,
+      OR: [{ progress: null }, { progress: { is: { isAccepted: false } } }],
+    },
+    orderBy: { hot100Order: "asc" },
+    take: windowDates.length * NEW_PER_DAY + 20,
+  });
+  const newByDate = new Map<string, Candidate[]>();
   let cursor = 0;
-  const perDay = dates.map((date) => {
-    const key = toDateKey(date);
-    const kept = keptByDate.get(key) ?? [];
-    const quota = counts.get(key) ?? 0;
-    const remaining = Math.max(0, quota - kept.length);
-    const items: Candidate[] = [];
-    while (items.length < remaining && cursor < queue.length) {
-      const candidate = queue[cursor];
+  for (const date of windowDates) {
+    const list: Candidate[] = [];
+    while (list.length < NEW_PER_DAY && cursor < newProblems.length) {
+      const problem = newProblems[cursor];
       cursor += 1;
-      if (assigned.has(candidate.problemId)) {
+      if (assigned.has(problem.id)) {
         continue;
       }
-      assigned.add(candidate.problemId);
-      items.push(candidate);
+      assigned.add(problem.id);
+      list.push({ problemId: problem.id, kind: "new", estimatedMinutes: problem.estimatedNewMinutes });
     }
-    return { date, kept, items };
-  });
+    newByDate.set(toDateKey(date), list);
+  }
 
-  for (const { date, kept, items } of perDay) {
+  for (const date of windowDates) {
+    const key = toDateKey(date);
+    const kept = keptByDate.get(key) ?? [];
+    const fresh = [...(reviewsByDate.get(key) ?? []), ...(newByDate.get(key) ?? [])];
     const keptMinutes = kept.reduce((sum, item) => sum + item.estimatedMinutes, 0);
-    const totalMinutes = keptMinutes + items.reduce((sum, item) => sum + item.estimatedMinutes, 0);
+    const totalMinutes = keptMinutes + fresh.reduce((sum, item) => sum + item.estimatedMinutes, 0);
     const dailyPlan = await db.dailyPlan.upsert({
       where: { date },
       update: {
@@ -145,7 +134,7 @@ export async function POST(request: NextRequest) {
     });
 
     let sortOrder = kept.length + 1;
-    for (const item of items) {
+    for (const item of fresh) {
       await db.planItem.create({
         data: {
           dailyPlanId: dailyPlan.id,
@@ -164,8 +153,7 @@ export async function POST(request: NextRequest) {
     include: { progress: true, reviewSchedule: true },
   });
 
-  // Recompute risk scores in a single batched transaction instead of one
-  // sequential write per problem (much faster on each regenerate).
+  // Recompute risk scores in a single batched transaction.
   await db.$transaction(
     acceptedProgress.map((problem) =>
       db.problemProgress.update({
@@ -183,6 +171,5 @@ export async function POST(request: NextRequest) {
     ),
   );
 
-  const weekPlans = await loadWeekPlans(today);
-  return NextResponse.json({ weekPlans });
+  return NextResponse.json({ weekPlans: await loadWeekPlans(today) });
 }

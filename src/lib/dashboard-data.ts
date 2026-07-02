@@ -125,7 +125,9 @@ export async function getDashboardData() {
   const todayProblemIds = todayPlan?.items.map((item) => item.problemId) ?? [];
   const HEAT_WEEKS = 18;
   const heatStart = addUtcDays(weekStart, -7 * (HEAT_WEEKS - 1));
-  const [latestSessions, todayDoneSessions, recentSessions, weekProgressPlans, heatSessions] =
+  const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+  const monthEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1));
+  const [latestSessions, todayDoneSessions, recentSessions, weekProgressPlans, monthPlans, heatSessions] =
     await Promise.all([
       // Latest sessions for today's plan problems, so a regenerated plan item
       // still surfaces its history (feedback + notes). Empty `in` returns [].
@@ -149,10 +151,15 @@ export async function getDashboardData() {
         orderBy: { completedAt: "desc" },
         include: { problem: { select: { id: true, frontendId: true, titleCn: true, difficulty: true } } },
       }),
-      // This calendar week's plans, for "本周进度".
+      // This calendar week's plans, for "本周进度（新题）".
       db.dailyPlan.findMany({
         where: { date: { gte: weekStart, lt: addUtcDays(weekStart, 7) } },
-        include: { items: { select: { problemId: true, isCompleted: true } } },
+        include: { items: { select: { problemId: true, isCompleted: true, kind: true } } },
+      }),
+      // This month's plans, for "本月进度（新题）".
+      db.dailyPlan.findMany({
+        where: { date: { gte: monthStart, lt: monthEnd } },
+        include: { items: { select: { problemId: true, isCompleted: true, kind: true } } },
       }),
       // Daily counts for the contribution heatmap.
       db.studySession.findMany({
@@ -228,21 +235,31 @@ export async function getDashboardData() {
     recentSessions.map((session) => `${session.problemId}|${toDateKey(session.completedAt)}`),
   );
 
-  // "本周进度" over the actual calendar week (Monday–Sunday of the week
-  // containing today), not the next-7-days window. Days already passed this
-  // week — e.g. yesterday — still count, and a planned problem is done if it
-  // was studied that day (survives a re-plan).
-  let weekDone = 0;
-  let weekTarget = 0;
-  for (const plan of weekProgressPlans) {
-    const dateKey = toDateKey(plan.date);
-    for (const item of plan.items) {
-      weekTarget += 1;
-      if (item.isCompleted || sessionDayKeys.has(`${item.problemId}|${dateKey}`)) {
-        weekDone += 1;
+  // Progress counts only NEW problems (reviews are scheduled by due date and
+  // aren't part of the "finish the plan in a month" target). Done = the
+  // plan-item flag (survives a re-plan) OR a study session that day.
+  function countNewProgress(plans: typeof weekProgressPlans) {
+    let done = 0;
+    let target = 0;
+    for (const plan of plans) {
+      const dateKey = toDateKey(plan.date);
+      for (const item of plan.items) {
+        if (item.kind !== "NEW") continue;
+        target += 1;
+        if (item.isCompleted || sessionDayKeys.has(`${item.problemId}|${dateKey}`)) {
+          done += 1;
+        }
       }
     }
+    return { done, target };
   }
+  const weekNew = countNewProgress(weekProgressPlans);
+  const monthNew = countNewProgress(monthPlans);
+  // "累计完成" = problems whose average feedback score is below 3 — i.e. well
+  // understood (0 = one-shot AC, 5 = no idea).
+  const masteredCount = feelingStats.filter(
+    (stat) => stat._avg.feelingScore !== null && (stat._avg.feelingScore as number) < 3,
+  ).length;
 
   // Contribution-style heatmap: per-day study-session counts over the last
   // HEAT_WEEKS calendar weeks (Monday-anchored, so each column is one week).
@@ -251,19 +268,7 @@ export async function getDashboardData() {
     const key = toDateKey(session.completedAt);
     heatCounts[key] = (heatCounts[key] ?? 0) + 1;
   }
-  const monthPrefix = toDateKey(today).slice(0, 7);
-  const weekStartKey = toDateKey(weekStart);
   const todayKeyForHeat = toDateKey(today);
-  let heatMonth = 0;
-  let heatWeek = 0;
-  for (const [key, count] of Object.entries(heatCounts)) {
-    if (key.slice(0, 7) === monthPrefix) {
-      heatMonth += count;
-    }
-    if (key >= weekStartKey && key <= todayKeyForHeat) {
-      heatWeek += count;
-    }
-  }
 
   const availability = weekDays.map((date) => {
     const row = availabilityRows.find((item) => toDateKey(item.date) === toDateKey(date));
@@ -388,15 +393,16 @@ export async function getDashboardData() {
     })),
     weekHistory,
     todayExtra,
-    weekProgress: { done: weekDone, target: weekTarget },
+    metrics: {
+      weekNew,
+      monthNew,
+      mastered: masteredCount,
+    },
     heatmap: {
       start: toDateKey(heatStart),
       weeks: HEAT_WEEKS,
       today: todayKeyForHeat,
       counts: heatCounts,
-      total: sessions,
-      month: heatMonth,
-      week: heatWeek,
     },
     availability,
     slots,

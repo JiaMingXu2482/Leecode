@@ -53,7 +53,7 @@ const navItems: { href: string; key: ActiveView; label: string; icon: typeof Tar
 
 const viewTitle: Record<ActiveView, { title: string; subtitle: string }> = {
   today: { title: "今日任务", subtitle: "只看今天要处理的题目，打开力扣后做题，完成后标记已处理即可。" },
-  weekly: { title: "周计划", subtitle: "设置每天要完成的题量，系统按艾宾浩斯遗忘曲线实时排题。" },
+  weekly: { title: "周计划", subtitle: "" },
   history: { title: "历史笔记", subtitle: "按天回顾做过的题、当时的反馈分数和笔记（解题思路 / C++ 语法分两栏）。" },
   reviews: { title: "刷题计划", subtitle: "按 Hot100 分类管理：勾选不想刷的题或整类，未勾选的进入刷题列表。" },
   stats: { title: "统计", subtitle: "每道题的做题反馈平均分，可按分数升序或降序排序。" },
@@ -67,7 +67,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.3.3";
+const APP_VERSION = "v1.4.0";
 const APP_UPDATED = "2026-07-01";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -374,25 +374,6 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
     return payload.weekPlans;
   }
 
-  // Append one more problem to a day's plan without reshuffling the week.
-  async function addOneToDay(date: string) {
-    setBusy("/api/plans/add-one");
-    setMessage("");
-    const response = await fetch("/api/plans/add-one", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ date }),
-    });
-    setBusy("");
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => ({}))) as { error?: string };
-      setMessage(payload.error ?? "追加失败");
-      return null;
-    }
-    const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
-    return payload.weekPlans;
-  }
-
 
   async function syncLeetCode() {
     const ok = await requestJson("/api/sync/leetcode-cn", { cookie, syncCode: true });
@@ -509,7 +490,9 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               </button>
               <div className="min-w-0">
                 <h1 className="text-xl font-semibold tracking-tight">{viewTitle[active].title}</h1>
-                <p className="mt-1 text-sm text-fg-subtle">{viewTitle[active].subtitle}</p>
+                {viewTitle[active].subtitle ? (
+                  <p className="mt-1 text-sm text-fg-subtle">{viewTitle[active].subtitle}</p>
+                ) : null}
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -544,8 +527,8 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               initialPlans={data.weekPlans}
               history={data.weekHistory}
               problems={data.problems}
+              today={data.today}
               onGenerate={generateWeekly}
-              onAddOne={addOneToDay}
               onMove={moveItem}
               onAddProblem={addProblemToDay}
               busy={Boolean(busy)}
@@ -670,8 +653,8 @@ function WeeklyView({
   initialPlans,
   history,
   problems,
+  today,
   onGenerate,
-  onAddOne,
   onMove,
   onAddProblem,
   busy,
@@ -680,8 +663,8 @@ function WeeklyView({
   initialPlans: WeekPlans;
   history: DashboardData["weekHistory"];
   problems: DashboardData["problems"];
+  today: string;
   onGenerate: (counts: Record<string, number>) => Promise<WeekPlans | null>;
-  onAddOne: (date: string) => Promise<WeekPlans | null>;
   onMove: (id: string, date: string) => Promise<WeekPlans | null>;
   onAddProblem: (date: string, problemId: string) => Promise<WeekPlans | null>;
   busy: boolean;
@@ -703,11 +686,6 @@ function WeeklyView({
         )
         .slice(0, 12)
     : [];
-
-  async function addOne(date: string) {
-    const result = await onAddOne(date);
-    if (result) setPlans(result);
-  }
 
   async function move(id: string, date: string) {
     const result = await onMove(id, date);
@@ -751,15 +729,12 @@ function WeeklyView({
 
   return (
     <section className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-fg-subtle">
-          拖动题目到别的一天即可移动；用下面的搜索框把任意一题拖到某天加入。周日休息，不排题。
-        </p>
+      <div className="flex items-center justify-end gap-2">
         <button
           onClick={regenerate}
           disabled={busy}
           className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-line-strong px-2.5 text-xs font-medium text-fg-muted hover:bg-muted disabled:opacity-40"
-          title="按当前每天题量重新排整周（会打乱已排的题）"
+          title="重新排本周（每天至少 3 道新题 + 到期复习；会打乱未完成的题）"
         >
           <RefreshCw size={13} />
           重排本周
@@ -813,6 +788,7 @@ function WeeklyView({
           {days.map((day) => {
             const items = plansByDate.get(day.date) ?? [];
             const isOver = dragOverDate === day.date;
+            const isPast = day.date < today;
             return (
               <div
                 key={day.date}
@@ -828,24 +804,14 @@ function WeeklyView({
                 onDrop={(event) => onDropDay(day.date, event)}
                 className={`rounded-lg border bg-surface p-3 transition-colors ${
                   isOver ? "border-blue-400 ring-1 ring-blue-400/40" : "border-line"
-                }`}
+                } ${isPast ? "opacity-55" : ""}`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-baseline gap-2">
                     <span className="text-sm font-semibold">{weekdayLabels[day.weekday]}</span>
                     <span className="text-xs text-fg-subtle">{formatYmd(day.date)}</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-6 text-center text-sm font-semibold tabular-nums">{items.length}</span>
-                    <button
-                      onClick={() => addOne(day.date)}
-                      disabled={busy || items.length >= 30}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-line text-fg-muted hover:bg-muted disabled:opacity-40"
-                      title="追加一题（不打乱已排的题）"
-                    >
-                      <Plus size={14} />
-                    </button>
-                  </div>
+                  <span className="text-xs font-medium tabular-nums text-fg-subtle">{items.length} 题</span>
                 </div>
                 <DayPlanList items={items} />
               </div>
@@ -1487,12 +1453,9 @@ function heatLevelClass(count: number, future: boolean) {
 // bottom); darker green = more problems studied that day.
 function TodayOverview({ data }: { data: DashboardData }) {
   const heatmap = data.heatmap;
-  const weekTarget = data.weekProgress.target;
-  const weekDone = data.weekProgress.done;
-  const weekPct = weekTarget ? Math.round((weekDone / weekTarget) * 100) : 0;
-  const extraDone = data.todayExtra.length;
-  const todayCount = (data.todayPlan?.items.length ?? 0) + extraDone;
-  const todayDone = (data.todayPlan?.items.filter((item) => item.isCompleted).length ?? 0) + extraDone;
+  const { weekNew, monthNew, mastered } = data.metrics;
+  const weekPct = weekNew.target ? Math.round((weekNew.done / weekNew.target) * 100) : 0;
+  const monthPct = monthNew.target ? Math.round((monthNew.done / monthNew.target) * 100) : 0;
 
   const start = new Date(`${heatmap.start}T00:00:00Z`);
   const columns = Array.from({ length: heatmap.weeks }, (_, w) =>
@@ -1517,12 +1480,10 @@ function TodayOverview({ data }: { data: DashboardData }) {
 
   return (
     <section className="rounded-lg border border-line bg-surface p-4">
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        <OverviewStat label="本周进度" value={`${weekDone}/${weekTarget}`} hint={`${weekPct}% · 本周目标`} />
-        <OverviewStat label="今日题量" value={`${todayDone}/${todayCount}`} hint="已处理 / 今日题数" />
-        <OverviewStat label="累计完成" value={`${heatmap.total}`} />
-        <OverviewStat label="本月完成" value={`${heatmap.month}`} />
-        <OverviewStat label="本周完成" value={`${heatmap.week}`} />
+      <div className="grid grid-cols-3 gap-4">
+        <OverviewStat label="本周进度" value={`${weekNew.done}/${weekNew.target}`} hint={`${weekPct}% · 本周新题`} />
+        <OverviewStat label="本月进度" value={`${monthNew.done}/${monthNew.target}`} hint={`${monthPct}% · 本月新题`} />
+        <OverviewStat label="累计完成" value={`${mastered}`} hint="平均分 < 3 的题数" />
       </div>
       <div className="mt-5 border-t border-line pt-5">
         <div className="mx-auto w-max max-w-full overflow-x-auto overflow-y-hidden">
