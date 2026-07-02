@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { isAuthorizedServer } from "@/lib/auth";
 import { getDb } from "@/lib/db";
+import { noteToHtml } from "@/lib/notes";
 
 export const dynamic = "force-dynamic";
 
@@ -89,15 +90,25 @@ export default async function ProblemDetailPage({
                   <div className="grid gap-3 border-t border-line p-3 lg:grid-cols-2">
                     <div>
                       <div className="text-xs font-medium text-fg-subtle">解题思路</div>
-                      <div className="mt-1.5 min-h-16 whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-sm leading-6 text-fg">
-                        {session.noteMarkdown || "—"}
-                      </div>
+                      {session.noteMarkdown ? (
+                        <div
+                          className="mt-1.5 min-h-16 whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-sm leading-6 text-fg"
+                          dangerouslySetInnerHTML={{ __html: noteToHtml(session.noteMarkdown) }}
+                        />
+                      ) : (
+                        <div className="mt-1.5 min-h-16 rounded-md bg-muted p-3 font-mono text-sm leading-6 text-fg-subtle">—</div>
+                      )}
                     </div>
                     <div>
                       <div className="text-xs font-medium text-fg-subtle">C++ 语法 / 知识点</div>
-                      <div className="mt-1.5 min-h-16 whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-sm leading-6 text-fg">
-                        {session.noteSyntax || "—"}
-                      </div>
+                      {session.noteSyntax ? (
+                        <div
+                          className="mt-1.5 min-h-16 whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-sm leading-6 text-fg"
+                          dangerouslySetInnerHTML={{ __html: noteToHtml(session.noteSyntax) }}
+                        />
+                      ) : (
+                        <div className="mt-1.5 min-h-16 rounded-md bg-muted p-3 font-mono text-sm leading-6 text-fg-subtle">—</div>
+                      )}
                     </div>
                   </div>
                 </details>

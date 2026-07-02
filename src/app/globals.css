@@ -67,3 +67,18 @@ select,
 textarea {
   font: inherit;
 }
+
+/* Rich-text note editor + read-only note rendering. Tailwind's preflight
+   neutralises b/strong, so restore bold; <font size> / <font color> from
+   execCommand render natively. */
+.note-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--fg-subtle);
+  pointer-events: none;
+}
+.note-editor b,
+.note-editor strong,
+.note-content b,
+.note-content strong {
+  font-weight: 700;
+}

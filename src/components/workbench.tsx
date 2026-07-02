@@ -26,8 +26,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type DragEvent, type KeyboardEvent, useState } from "react";
+import { type DragEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { DashboardData } from "@/lib/dashboard-data";
+import { noteToHtml, RICH_PREFIX } from "@/lib/notes";
 import { TOPIC_GROUPS } from "@/lib/topics";
 
 type ActiveView = "today" | "weekly" | "history" | "reviews" | "stats" | "sync";
@@ -59,44 +60,122 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.3.0";
+const APP_VERSION = "v1.3.1";
 const APP_UPDATED = "2026-07-01";
 const DEFAULT_DAILY_COUNT = 3;
 
-function handleNoteTab(
-  event: KeyboardEvent<HTMLTextAreaElement>,
-  value: string,
-  setValue: (next: string) => void,
-) {
-  if (event.key !== "Tab") {
-    return;
-  }
-  event.preventDefault();
-  const textarea = event.currentTarget;
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  const indent = "    ";
+const NOTE_COLORS = ["#e5e7eb", "#f59e0b", "#ef4444", "#22c55e", "#3b82f6", "#a78bfa"];
 
-  if (event.shiftKey) {
-    // Dedent: drop up to 4 spaces just before the cursor.
-    const before = value.slice(0, start);
-    const removed = before.match(/ {1,4}$/)?.[0] ?? "";
-    if (!removed) {
-      return;
+// Lightweight rich-text note editor (contentEditable + execCommand): bold, font
+// size and font colour, no dependencies. Stores HTML prefixed with RICH_PREFIX.
+function RichNoteEditor({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  placeholder?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Initialise the editable DOM once; afterwards the DOM is the source of truth
+  // (re-setting innerHTML on each keystroke would reset the caret).
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.innerHTML = noteToHtml(value);
     }
-    const next = value.slice(0, start - removed.length) + value.slice(start);
-    setValue(next);
-    requestAnimationFrame(() => {
-      textarea.selectionStart = textarea.selectionEnd = start - removed.length;
-    });
-    return;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function emit() {
+    const html = ref.current?.innerHTML ?? "";
+    const isEmpty = html === "" || html === "<br>";
+    onChange(isEmpty ? "" : RICH_PREFIX + html);
   }
 
-  const next = value.slice(0, start) + indent + value.slice(end);
-  setValue(next);
-  requestAnimationFrame(() => {
-    textarea.selectionStart = textarea.selectionEnd = start + indent.length;
-  });
+  function exec(command: string, arg?: string) {
+    ref.current?.focus();
+    document.execCommand(command, false, arg);
+    emit();
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Tab") {
+      event.preventDefault();
+      document.execCommand("insertText", false, "    ");
+      emit();
+    }
+  }
+
+  const toolButton =
+    "inline-flex h-7 items-center justify-center rounded px-1.5 text-xs text-fg-muted hover:bg-muted";
+
+  return (
+    <div className="mt-2 rounded-md border border-line-strong bg-surface focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/30">
+      <div className="flex flex-wrap items-center gap-1 border-b border-line px-2 py-1.5">
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => exec("bold")}
+          className={`${toolButton} w-7 font-bold text-fg`}
+          title="加粗"
+        >
+          B
+        </button>
+        <span className="mx-0.5 h-4 w-px bg-line" />
+        {[
+          ["小", "2"],
+          ["正常", "3"],
+          ["大", "5"],
+          ["特大", "6"],
+        ].map(([label, size]) => (
+          <button
+            key={size}
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => exec("fontSize", size)}
+            className={toolButton}
+            title={`字号 ${label}`}
+          >
+            {label}
+          </button>
+        ))}
+        <span className="mx-0.5 h-4 w-px bg-line" />
+        {NOTE_COLORS.map((color) => (
+          <button
+            key={color}
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => exec("foreColor", color)}
+            className="h-5 w-5 rounded-full border border-line"
+            style={{ backgroundColor: color }}
+            title="字体颜色"
+          />
+        ))}
+      </div>
+      <div
+        ref={ref}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={emit}
+        onKeyDown={onKeyDown}
+        data-placeholder={placeholder}
+        spellCheck={false}
+        className="note-editor min-h-[28rem] w-full overflow-auto whitespace-pre-wrap p-3 font-mono text-[15px] leading-7 outline-none"
+      />
+    </div>
+  );
+}
+
+// Read-only rendering of a stored note (rich HTML or legacy plain text).
+function NoteContent({ value, className }: { value: string; className?: string }) {
+  return (
+    <div
+      className={`note-content whitespace-pre-wrap font-mono ${className ?? ""}`}
+      dangerouslySetInnerHTML={{ __html: noteToHtml(value) }}
+    />
+  );
 }
 
 function formatYmd(value?: string | null) {
@@ -813,16 +892,16 @@ function HistoryEntry({ entry }: { entry: DashboardData["weekHistory"][number]["
               <div className="inline-flex items-center gap-1 text-sm font-medium text-fg">
                 <BookOpen size={14} /> 解题思路
               </div>
-              <div className="mt-1.5 min-h-16 whitespace-pre-wrap rounded-md border border-line bg-muted p-3 font-mono text-sm leading-6 text-fg-muted">
-                {entry.noteMarkdown || "—"}
+              <div className="mt-1.5 min-h-16 rounded-md border border-line bg-muted p-3 text-sm leading-6 text-fg-muted">
+                {entry.noteMarkdown ? <NoteContent value={entry.noteMarkdown} /> : "—"}
               </div>
             </div>
             <div>
               <div className="inline-flex items-center gap-1 text-sm font-medium text-fg">
                 <Code2 size={14} /> C++ 语法 / 知识点
               </div>
-              <div className="mt-1.5 min-h-16 whitespace-pre-wrap rounded-md border border-line bg-muted p-3 font-mono text-sm leading-6 text-fg-muted">
-                {entry.noteSyntax || "—"}
+              <div className="mt-1.5 min-h-16 rounded-md border border-line bg-muted p-3 text-sm leading-6 text-fg-muted">
+                {entry.noteSyntax ? <NoteContent value={entry.noteSyntax} /> : "—"}
               </div>
             </div>
           </div>
@@ -1258,32 +1337,26 @@ function TaskRow({
             />
           </label>
           <div className="mt-3 grid gap-3 lg:grid-cols-2">
-            <label className="text-sm text-fg-muted">
+            <div className="text-sm text-fg-muted">
               <span className="inline-flex items-center gap-1 font-medium text-fg">
                 <BookOpen size={14} /> 解题思路笔记
               </span>
-              <textarea
+              <RichNoteEditor
                 value={noteMarkdown}
-                onChange={(event) => setNoteMarkdown(event.target.value)}
-                onKeyDown={(event) => handleNoteTab(event, noteMarkdown, setNoteMarkdown)}
-                spellCheck={false}
-                placeholder="这道题的思路、卡点、错因、下次复习要注意的点（支持 Markdown，Tab 缩进）"
-                className="mt-2 min-h-[28rem] w-full resize-y rounded-md border border-line-strong bg-surface p-3 font-mono text-[15px] leading-7 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
+                onChange={setNoteMarkdown}
+                placeholder="这道题的思路、卡点、错因、下次复习要注意的点（可加粗/调字号/改颜色，Tab 缩进）"
               />
-            </label>
-            <label className="text-sm text-fg-muted">
+            </div>
+            <div className="text-sm text-fg-muted">
               <span className="inline-flex items-center gap-1 font-medium text-fg">
                 <Code2 size={14} /> C++ 语法 / 知识点
               </span>
-              <textarea
+              <RichNoteEditor
                 value={noteSyntax}
-                onChange={(event) => setNoteSyntax(event.target.value)}
-                onKeyDown={(event) => handleNoteTab(event, noteSyntax, setNoteSyntax)}
-                spellCheck={false}
+                onChange={setNoteSyntax}
                 placeholder="C++ 语法、STL 成员函数用法、容器/迭代器等基础知识点（Tab 缩进）"
-                className="mt-2 min-h-[28rem] w-full resize-y rounded-md border border-line-strong bg-surface p-3 font-mono text-[15px] leading-7 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
               />
-            </label>
+            </div>
           </div>
           {past.length ? (
             <div className="mt-3 rounded-md border border-line bg-surface">
@@ -1305,13 +1378,13 @@ function TaskRow({
                       {entry.noteMarkdown ? (
                         <div className="mt-2">
                           <div className="font-medium text-fg-muted">解题思路</div>
-                          <div className="mt-1 whitespace-pre-wrap font-mono leading-5 text-fg-muted">{entry.noteMarkdown}</div>
+                          <NoteContent value={entry.noteMarkdown} className="mt-1 leading-5 text-fg-muted" />
                         </div>
                       ) : null}
                       {entry.noteSyntax ? (
                         <div className="mt-2">
                           <div className="font-medium text-fg-muted">C++ 语法 / 知识点</div>
-                          <div className="mt-1 whitespace-pre-wrap font-mono leading-5 text-fg-muted">{entry.noteSyntax}</div>
+                          <NoteContent value={entry.noteSyntax} className="mt-1 leading-5 text-fg-muted" />
                         </div>
                       ) : null}
                     </div>
@@ -1329,10 +1402,10 @@ function TaskRow({
 function heatLevelClass(count: number, future: boolean) {
   if (future) return "bg-transparent";
   if (count <= 0) return "bg-muted";
-  if (count <= 1) return "bg-emerald-500/30";
-  if (count <= 3) return "bg-emerald-500/55";
-  if (count <= 5) return "bg-emerald-500/80";
-  return "bg-emerald-500";
+  if (count <= 1) return "bg-amber-500/30";
+  if (count <= 3) return "bg-amber-500/55";
+  if (count <= 5) return "bg-amber-500/80";
+  return "bg-amber-500";
 }
 
 // Today overview: key metrics plus a GitHub-style contribution heatmap of daily
