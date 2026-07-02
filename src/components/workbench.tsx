@@ -1,8 +1,12 @@
 "use client";
 
 import {
+  AArrowDown,
+  AArrowUp,
   ArrowUpDown,
   BarChart3,
+  Baseline,
+  Bold,
   BookOpen,
   CalendarDays,
   Check,
@@ -11,6 +15,8 @@ import {
   DatabaseZap,
   ExternalLink,
   GripVertical,
+  Highlighter,
+  Italic,
   ListChecks,
   LogOut,
   Moon,
@@ -22,6 +28,7 @@ import {
   Settings2,
   Sun,
   Target,
+  Underline,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -60,14 +67,62 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.3.1";
+const APP_VERSION = "v1.3.2";
 const APP_UPDATED = "2026-07-01";
 const DEFAULT_DAILY_COUNT = 3;
 
 const NOTE_COLORS = ["#e5e7eb", "#f59e0b", "#ef4444", "#22c55e", "#3b82f6", "#a78bfa"];
+const NOTE_TOOL_BTN =
+  "inline-flex h-7 min-w-7 items-center justify-center rounded px-1 text-fg-muted hover:bg-muted";
 
-// Lightweight rich-text note editor (contentEditable + execCommand): bold, font
-// size and font colour, no dependencies. Stores HTML prefixed with RICH_PREFIX.
+// Toolbar colour picker: a button that reveals a small swatch popover. Uses
+// onMouseDown preventDefault so the editor keeps its text selection.
+function ColorButton({
+  icon,
+  title,
+  onPick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  onPick: (color: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => setOpen((value) => !value)}
+        className={NOTE_TOOL_BTN}
+        title={title}
+      >
+        {icon}
+      </button>
+      {open ? (
+        <div className="absolute left-0 top-8 z-20 flex gap-1 rounded-md border border-line bg-surface p-1.5 shadow-lg">
+          {NOTE_COLORS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onPick(color);
+                setOpen(false);
+              }}
+              className="h-5 w-5 rounded-full border border-line"
+              style={{ backgroundColor: color }}
+              title={color}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// Lightweight rich-text note editor (contentEditable + execCommand): bold,
+// italic, underline, grow/shrink font size and font/highlight colour. No
+// dependencies. Stores HTML prefixed with RICH_PREFIX.
 function RichNoteEditor({
   value,
   onChange,
@@ -108,51 +163,43 @@ function RichNoteEditor({
     }
   }
 
-  const toolButton =
-    "inline-flex h-7 items-center justify-center rounded px-1.5 text-xs text-fg-muted hover:bg-muted";
+  function adjustSize(delta: number) {
+    ref.current?.focus();
+    const current = parseInt(document.queryCommandValue("fontSize") || "3", 10);
+    const base = Number.isNaN(current) || current < 1 ? 3 : current;
+    document.execCommand("fontSize", false, String(Math.min(7, Math.max(1, base + delta))));
+    emit();
+  }
+
+  function applyColor(command: string, color: string) {
+    ref.current?.focus();
+    document.execCommand("styleWithCSS", false, "true");
+    document.execCommand(command, false, color);
+    emit();
+  }
 
   return (
     <div className="mt-2 rounded-md border border-line-strong bg-surface focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/30">
-      <div className="flex flex-wrap items-center gap-1 border-b border-line px-2 py-1.5">
-        <button
-          type="button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => exec("bold")}
-          className={`${toolButton} w-7 font-bold text-fg`}
-          title="加粗"
-        >
-          B
+      <div className="flex flex-wrap items-center gap-0.5 border-b border-line px-2 py-1.5">
+        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => exec("bold")} className={NOTE_TOOL_BTN} title="加粗">
+          <Bold size={15} />
+        </button>
+        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => exec("italic")} className={NOTE_TOOL_BTN} title="斜体">
+          <Italic size={15} />
+        </button>
+        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => exec("underline")} className={NOTE_TOOL_BTN} title="下划线">
+          <Underline size={15} />
         </button>
         <span className="mx-0.5 h-4 w-px bg-line" />
-        {[
-          ["小", "2"],
-          ["正常", "3"],
-          ["大", "5"],
-          ["特大", "6"],
-        ].map(([label, size]) => (
-          <button
-            key={size}
-            type="button"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => exec("fontSize", size)}
-            className={toolButton}
-            title={`字号 ${label}`}
-          >
-            {label}
-          </button>
-        ))}
+        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => adjustSize(1)} className={NOTE_TOOL_BTN} title="增大字号">
+          <AArrowUp size={17} />
+        </button>
+        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => adjustSize(-1)} className={NOTE_TOOL_BTN} title="减小字号">
+          <AArrowDown size={17} />
+        </button>
         <span className="mx-0.5 h-4 w-px bg-line" />
-        {NOTE_COLORS.map((color) => (
-          <button
-            key={color}
-            type="button"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => exec("foreColor", color)}
-            className="h-5 w-5 rounded-full border border-line"
-            style={{ backgroundColor: color }}
-            title="字体颜色"
-          />
-        ))}
+        <ColorButton icon={<Baseline size={15} />} title="字体颜色" onPick={(color) => applyColor("foreColor", color)} />
+        <ColorButton icon={<Highlighter size={15} />} title="突出显示（高亮）" onPick={(color) => applyColor("hiliteColor", color)} />
       </div>
       <div
         ref={ref}
