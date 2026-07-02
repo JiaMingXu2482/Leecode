@@ -67,7 +67,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.3.2";
+const APP_VERSION = "v1.3.3";
 const APP_UPDATED = "2026-07-01";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -81,10 +81,12 @@ function ColorButton({
   icon,
   title,
   onPick,
+  onClear,
 }: {
   icon: React.ReactNode;
   title: string;
   onPick: (color: string) => void;
+  onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -99,7 +101,20 @@ function ColorButton({
         {icon}
       </button>
       {open ? (
-        <div className="absolute left-0 top-8 z-20 flex gap-1 rounded-md border border-line bg-surface p-1.5 shadow-lg">
+        // Opens above the toolbar so the swatches never cover the note text.
+        <div className="absolute bottom-full left-0 z-20 mb-1 flex items-center gap-1 rounded-md border border-line bg-surface p-1.5 shadow-lg">
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              onClear();
+              setOpen(false);
+            }}
+            className="flex h-5 w-5 items-center justify-center rounded-full border border-line text-[11px] leading-none text-fg-subtle hover:bg-muted"
+            title="无 / 清除"
+          >
+            ✕
+          </button>
           {NOTE_COLORS.map((color) => (
             <button
               key={color}
@@ -178,6 +193,18 @@ function RichNoteEditor({
     emit();
   }
 
+  // Remove the highlight (and stop it leaking into text typed next) by painting
+  // the selection/caret transparent.
+  function clearHighlight() {
+    applyColor("hiliteColor", "transparent");
+  }
+
+  // Reset the font colour back to the editor's default text colour.
+  function clearFontColor() {
+    const color = ref.current ? getComputedStyle(ref.current).color : "";
+    applyColor("foreColor", color || "inherit");
+  }
+
   return (
     <div className="mt-2 rounded-md border border-line-strong bg-surface focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/30">
       <div className="flex flex-wrap items-center gap-0.5 border-b border-line px-2 py-1.5">
@@ -198,8 +225,8 @@ function RichNoteEditor({
           <AArrowDown size={17} />
         </button>
         <span className="mx-0.5 h-4 w-px bg-line" />
-        <ColorButton icon={<Baseline size={15} />} title="字体颜色" onPick={(color) => applyColor("foreColor", color)} />
-        <ColorButton icon={<Highlighter size={15} />} title="突出显示（高亮）" onPick={(color) => applyColor("hiliteColor", color)} />
+        <ColorButton icon={<Baseline size={15} />} title="字体颜色" onPick={(color) => applyColor("foreColor", color)} onClear={clearFontColor} />
+        <ColorButton icon={<Highlighter size={15} />} title="突出显示（高亮）" onPick={(color) => applyColor("hiliteColor", color)} onClear={clearHighlight} />
       </div>
       <div
         ref={ref}
