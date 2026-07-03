@@ -67,7 +67,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.4.0";
+const APP_VERSION = "v1.4.1";
 const APP_UPDATED = "2026-07-01";
 const DEFAULT_DAILY_COUNT = 3;
 

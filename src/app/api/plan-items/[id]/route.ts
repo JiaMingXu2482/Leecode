@@ -150,16 +150,18 @@ export async function PATCH(
     }),
   ]);
 
-  // 陌生 (score 5): make sure this problem comes back the next day. The week is
-  // planned ahead, so a fresh "unfamiliar" rating won't otherwise land in an
-  // already-generated tomorrow — insert it into that day's plan directly.
-  if (feelingScore === 5) {
+  // Whenever a rated problem's next review falls within this week (today →
+  // Saturday), drop it straight onto that day's plan so the weekly view reflects
+  // it immediately — no re-plan needed. Reviews due after this week wait.
+  {
     const todayStart = startOfUtcDay(new Date());
+    const weekStart = addUtcDays(todayStart, -((weekdayIndex(todayStart) + 6) % 7));
+    const saturday = addUtcDays(weekStart, 5);
     let target = startOfUtcDay(review.nextReviewDate);
     if (weekdayIndex(target) === 0) {
       target = addUtcDays(target, 1); // Sunday is a rest day
     }
-    if (target.getTime() >= todayStart.getTime()) {
+    if (target.getTime() >= todayStart.getTime() && target.getTime() <= saturday.getTime()) {
       const targetPlan = await db.dailyPlan.upsert({
         where: { date: target },
         update: {},
