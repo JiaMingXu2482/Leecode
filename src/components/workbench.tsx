@@ -67,8 +67,18 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.5.0";
-const APP_UPDATED = "2026-07-01";
+const kindClass = {
+  NEW: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-300",
+  REVIEW: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300",
+  RETEST: "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/15 dark:text-purple-300",
+};
+const kindTextClass = {
+  NEW: "text-blue-600 dark:text-blue-400",
+  REVIEW: "text-amber-600 dark:text-amber-400",
+  RETEST: "text-purple-600 dark:text-purple-400",
+};
+const APP_VERSION = "v1.6.0";
+const APP_UPDATED = "2026-07-03";
 const DEFAULT_DAILY_COUNT = 3;
 
 const NOTE_COLORS = ["#e5e7eb", "#f59e0b", "#ef4444", "#22c55e", "#3b82f6", "#a78bfa"];
@@ -142,18 +152,33 @@ function RichNoteEditor({
   value,
   onChange,
   placeholder,
+  draftKey,
 }: {
   value: string;
   onChange: (next: string) => void;
   placeholder?: string;
+  // localStorage key for crash/navigation-safe drafts. Every keystroke is
+  // persisted; the draft is cleared by the caller on successful submit.
+  draftKey?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
   // Initialise the editable DOM once; afterwards the DOM is the source of truth
-  // (re-setting innerHTML on each keystroke would reset the caret).
+  // (re-setting innerHTML on each keystroke would reset the caret). If an
+  // unsubmitted draft exists, restore it instead of the server value.
   useEffect(() => {
+    let initial = value;
+    if (draftKey) {
+      try {
+        const draft = localStorage.getItem(draftKey);
+        if (draft !== null && draft !== value) {
+          initial = draft;
+          onChange(draft);
+        }
+      } catch {}
+    }
     if (ref.current) {
-      ref.current.innerHTML = noteToHtml(value);
+      ref.current.innerHTML = noteToHtml(initial);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -161,7 +186,13 @@ function RichNoteEditor({
   function emit() {
     const html = ref.current?.innerHTML ?? "";
     const isEmpty = html === "" || html === "<br>";
-    onChange(isEmpty ? "" : RICH_PREFIX + html);
+    const next = isEmpty ? "" : RICH_PREFIX + html;
+    onChange(next);
+    if (draftKey) {
+      try {
+        localStorage.setItem(draftKey, next);
+      } catch {}
+    }
   }
 
   function exec(command: string, arg?: string) {
@@ -600,12 +631,30 @@ function TodayView({
           添加一题
         </button>
       </div>
-      <div className="rounded-lg border border-line bg-surface">
-        <div className="relative flex items-center justify-center border-b border-line px-4 py-3">
+      <div className="overflow-hidden rounded-lg border border-line bg-surface">
+        <div className="relative flex items-center justify-center px-4 py-3">
           <h2 className="text-sm font-semibold">{dateLabel}</h2>
           <span className="absolute right-4 text-sm text-fg-subtle">
-            {data.todayPlan || data.todayExtra.length ? `${items.length + data.todayExtra.length} 题` : "未生成"}
+            {data.todayPlan || data.todayExtra.length
+              ? `${items.filter((item) => item.isCompleted).length + data.todayExtra.length}/${items.length + data.todayExtra.length} 题`
+              : "未生成"}
           </span>
+        </div>
+        <div className="h-1 w-full bg-muted">
+          <div
+            className="h-1 bg-emerald-500 transition-[width] duration-300"
+            style={{
+              width: `${
+                items.length + data.todayExtra.length
+                  ? Math.round(
+                      ((items.filter((item) => item.isCompleted).length + data.todayExtra.length) /
+                        (items.length + data.todayExtra.length)) *
+                        100,
+                    )
+                  : 0
+              }%`,
+            }}
+          />
         </div>
         {items.length || data.todayExtra.length ? (
           <div className="divide-y divide-line">
@@ -641,7 +690,9 @@ function ExtraDoneRow({ extra }: { extra: DashboardData["todayExtra"][number] })
           <a href={extra.leetcodeCnUrl} target="_blank" className="font-medium text-fg break-words hover:text-blue-400">
             {extra.titleCn}
           </a>
-          <span className="text-xs text-fg-subtle">{kindLabel[extra.kind as keyof typeof kindLabel]}</span>
+          <Badge className={kindClass[extra.kind as keyof typeof kindClass]}>
+            {kindLabel[extra.kind as keyof typeof kindLabel]}
+          </Badge>
           <span className="inline-flex items-center gap-1 text-xs text-fg-subtle">
             <BarChart3 size={13} /> 反馈均分 {(extra.avgFeelingScore ?? 5).toFixed(1)}
           </span>
@@ -887,32 +938,57 @@ function WeeklyView({
 }
 
 function HistoryView({ data }: { data: DashboardData }) {
-  const history = data.weekHistory;
+  const [filter, setFilter] = useState("");
 
-  if (!history.length) {
+  if (!data.weekHistory.length) {
     return (
       <EmptyState text="还没有做题记录。在今日任务里完成题目并提交反馈后，会按天出现在这里。" />
     );
   }
 
+  const q = filter.trim();
+  const history = q
+    ? data.weekHistory
+        .map((day) => ({
+          ...day,
+          items: day.items.filter(
+            (entry) => entry.titleCn.includes(q) || String(entry.frontendId).includes(q),
+          ),
+        }))
+        .filter((day) => day.items.length)
+    : data.weekHistory;
+
   return (
     <div className="space-y-5">
-      {history.map((day) => {
-        const weekday = weekdayLabels[new Date(`${day.date}T00:00:00Z`).getUTCDay()];
-        return (
-          <div key={day.date}>
-            <div className="mb-2 flex items-baseline gap-2">
-              <h2 className="text-sm font-semibold">{weekday} {formatYmd(day.date)}</h2>
-              <span className="text-xs text-fg-subtle">{day.items.length} 题</span>
+      <div className="relative">
+        <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
+        <input
+          value={filter}
+          onChange={(event) => setFilter(event.target.value)}
+          placeholder="按题号或题目名称过滤笔记"
+          className="h-9 w-full rounded-md border border-line bg-surface pl-9 pr-3 text-sm outline-none focus:border-line-strong"
+        />
+      </div>
+      {history.length ? (
+        history.map((day) => {
+          const weekday = weekdayLabels[new Date(`${day.date}T00:00:00Z`).getUTCDay()];
+          return (
+            <div key={day.date}>
+              <div className="mb-2 flex items-baseline gap-2">
+                <h2 className="text-sm font-semibold">{weekday} {formatYmd(day.date)}</h2>
+                <span className="text-xs text-fg-subtle">{day.items.length} 题</span>
+              </div>
+              <div className="space-y-2">
+                {day.items.map((entry, index) => (
+                  <HistoryEntry key={index} entry={entry} />
+                ))}
+              </div>
             </div>
-            <div className="space-y-2">
-              {day.items.map((entry, index) => (
-                <HistoryEntry key={index} entry={entry} />
-              ))}
-            </div>
-          </div>
-        );
-      })}
+          );
+        })
+      ) : (
+        <p className="text-sm text-fg-subtle">没有匹配「{q}」的记录。</p>
+      )}
     </div>
   );
 }
@@ -932,7 +1008,9 @@ function HistoryEntry({ entry }: { entry: DashboardData["weekHistory"][number]["
         </Badge>
         <span className="font-mono text-xs text-fg-subtle">#{entry.frontendId}</span>
         <span className="min-w-0 flex-1 truncate font-medium">{entry.titleCn}</span>
-        <span className="shrink-0 text-xs text-fg-subtle">{kindLabel[entry.kind as keyof typeof kindLabel]}</span>
+        <span className={`shrink-0 text-xs font-medium ${kindTextClass[entry.kind as keyof typeof kindTextClass]}`}>
+          {kindLabel[entry.kind as keyof typeof kindLabel]}
+        </span>
         {typeof entry.feelingScore === "number" ? (
           <span className="shrink-0 text-xs text-fg-subtle">反馈 {entry.feelingScore}/5</span>
         ) : null}
@@ -1020,7 +1098,7 @@ function DayPlanList({ items }: { items: DashboardData["weekPlans"][number]["ite
                 <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${difficultyClass[item.problem.difficulty]}`}>
                   {item.problem.difficulty === "EASY" ? "易" : item.problem.difficulty === "MEDIUM" ? "中" : "难"}
                 </span>
-                <span className="shrink-0 text-[10px] text-fg-subtle">{kindLabel[item.kind]}</span>
+                <span className={`shrink-0 text-[10px] font-medium ${kindTextClass[item.kind]}`}>{kindLabel[item.kind]}</span>
                 {item.isCompleted ? <Check size={12} className="shrink-0 text-emerald-500" /> : null}
               </a>
             </li>
@@ -1149,6 +1227,18 @@ function TopicsView({
   );
 }
 
+function MasteryStat({ label, hint, value, tone }: { label: string; hint: string; value: number; tone: string }) {
+  return (
+    <div className="rounded-lg border border-line bg-surface p-4">
+      <div className="flex items-baseline justify-between">
+        <span className="text-xs font-medium text-fg-subtle">{label}</span>
+        <span className="text-[11px] text-fg-subtle">{hint}</span>
+      </div>
+      <div className={`mt-1 text-2xl font-semibold tracking-tight ${tone}`}>{value}</div>
+    </div>
+  );
+}
+
 function StatsView({ data }: { data: DashboardData; completion: number }) {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const scored = data.problems
@@ -1157,9 +1247,20 @@ function StatsView({ data }: { data: DashboardData; completion: number }) {
       const diff = (a.avgFeelingScore ?? 0) - (b.avgFeelingScore ?? 0);
       return sortDir === "asc" ? diff : -diff;
     });
+  // Same threshold as the 累计完成 metric: avg < 3 counts as mastered.
+  const mastered = scored.filter((problem) => (problem.avgFeelingScore ?? 5) < 3).length;
+  const shaky = scored.filter(
+    (problem) => (problem.avgFeelingScore ?? 5) >= 3 && (problem.avgFeelingScore ?? 5) < 4,
+  ).length;
+  const weak = scored.filter((problem) => (problem.avgFeelingScore ?? 5) >= 4).length;
 
   return (
     <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-3">
+        <MasteryStat label="已掌握" hint="平均分 < 3" value={mastered} tone="text-emerald-600 dark:text-emerald-400" />
+        <MasteryStat label="需巩固" hint="平均分 3 ~ 4" value={shaky} tone="text-amber-600 dark:text-amber-400" />
+        <MasteryStat label="生疏" hint="平均分 ≥ 4" value={weak} tone="text-red-600 dark:text-red-400" />
+      </div>
       <Panel title="做题反馈分数（每题平均分）" action={`${scored.length} 题`}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-fg-subtle">分数越高代表越不熟（0 = 一次 AC，5 = 没思路）。点按钮切换升/降序。</p>
@@ -1252,6 +1353,18 @@ function SyncView({
           {busy === "/api/sync/leetcode-cn" ? "同步中..." : "同步 AC 状态和提交画像"}
         </button>
       </Panel>
+      <Panel title="数据备份">
+        <p className="text-sm text-fg-subtle">
+          一键导出全部做题记录、笔记、复习计划和已同步的代码为 JSON 文件，妥善保存到本地。服务器每天凌晨也会自动备份数据库（保留最近 7 份）。
+        </p>
+        <a
+          href="/api/export"
+          className="mt-3 inline-flex h-10 items-center gap-2 rounded-md border border-line-strong px-4 text-sm font-semibold text-fg hover:bg-muted"
+        >
+          <DatabaseZap size={16} />
+          导出全部数据
+        </a>
+      </Panel>
       <Panel title="最近同步状态">
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <Info label="状态" value={data.syncState.status} />
@@ -1289,6 +1402,9 @@ function TaskRow({
   const [noteMarkdown, setNoteMarkdown] = useState(item.session?.noteMarkdown ?? "");
   const [noteSyntax, setNoteSyntax] = useState(item.session?.noteSyntax ?? "");
   const past = item.history ?? [];
+  // Keyed by problem so unsent notes survive a re-plan (plan-item ids change).
+  const draftKeyMd = `note-draft:${item.problem.id}:md`;
+  const draftKeySyntax = `note-draft:${item.problem.id}:syntax`;
 
   function chooseScore(score: number) {
     setFeelingScore(score);
@@ -1301,6 +1417,11 @@ function TaskRow({
     }
 
     onMark(item.id, feelingScore, reviewAfterDays, noteMarkdown, noteSyntax);
+    // Notes are on their way to the server; drop the crash-safety drafts.
+    try {
+      localStorage.removeItem(draftKeyMd);
+      localStorage.removeItem(draftKeySyntax);
+    } catch {}
     setFeedbackOpen(false);
   }
 
@@ -1314,7 +1435,7 @@ function TaskRow({
             <a href={item.problem.leetcodeCnUrl} target="_blank" className="font-medium text-fg break-words hover:text-blue-400">
               {item.problem.titleCn}
             </a>
-            <span className="text-xs text-fg-subtle">{kindLabel[item.kind]}</span>
+            <Badge className={kindClass[item.kind]}>{kindLabel[item.kind]}</Badge>
             <span className="inline-flex items-center gap-1 text-xs text-fg-subtle">
               <BarChart3 size={13} /> 反馈均分 {(item.problem.avgFeelingScore ?? 5).toFixed(1)}
             </span>
@@ -1404,6 +1525,7 @@ function TaskRow({
               <RichNoteEditor
                 value={noteMarkdown}
                 onChange={setNoteMarkdown}
+                draftKey={draftKeyMd}
                 placeholder="这道题的思路、卡点、错因、下次复习要注意的点（可加粗/调字号/改颜色，Tab 缩进）"
               />
             </div>
@@ -1414,6 +1536,7 @@ function TaskRow({
               <RichNoteEditor
                 value={noteSyntax}
                 onChange={setNoteSyntax}
+                draftKey={draftKeySyntax}
                 placeholder="C++ 语法、STL 成员函数用法、容器/迭代器等基础知识点（Tab 缩进）"
               />
             </div>
