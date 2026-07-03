@@ -77,7 +77,7 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.6.0";
+const APP_VERSION = "v1.6.1";
 const APP_UPDATED = "2026-07-03";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -296,10 +296,12 @@ function formatYmd(value?: string | null) {
   return `${String(date.getUTCFullYear()).slice(2)}/${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
 }
 
-// With the 30s client router cache (staleTimes), other tabs could briefly show
-// pre-mutation data. Any successful mutation sets this flag; on the next
-// navigation the freshly shown (possibly cached) page is refreshed in place.
-let pendingCrossViewRefresh = false;
+// With the client router cache + fully prefetched nav links (staleTimes),
+// other tabs could show pre-mutation data. Mutations record a timestamp and
+// every page re-fetches in place on its FIRST visit after that timestamp —
+// cached content still renders instantly, then updates without flicker.
+let lastMutationAt = 0;
+const lastRefreshedAt: Record<string, number> = {};
 
 export function Workbench({ data, active }: { data: DashboardData; active: ActiveView }) {
   const [cookie, setCookie] = useState("");
@@ -316,12 +318,12 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
   const router = useRouter();
   const pathname = usePathname();
 
-  // Arriving on a (possibly cached) page after a mutation elsewhere: re-fetch
-  // it in place so every view is guaranteed fresh, while the cached content
-  // shows instantly.
+  // Arriving on a (possibly cached) page that hasn't been refreshed since the
+  // last mutation: re-fetch it in place so every view is guaranteed fresh,
+  // while the cached content shows instantly.
   useEffect(() => {
-    if (pendingCrossViewRefresh) {
-      pendingCrossViewRefresh = false;
+    if (lastMutationAt > (lastRefreshedAt[pathname] ?? 0)) {
+      lastRefreshedAt[pathname] = Date.now();
       router.refresh();
     }
   }, [pathname, router]);
@@ -358,7 +360,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
       return false;
     }
 
-    pendingCrossViewRefresh = true;
+    lastMutationAt = Date.now();
     return true;
   }
 
@@ -380,7 +382,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
       return null;
     }
 
-    pendingCrossViewRefresh = true;
+    lastMutationAt = Date.now();
     const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
     return payload.weekPlans;
   }
@@ -400,7 +402,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
       setMessage(payload.error ?? "移动失败");
       return null;
     }
-    pendingCrossViewRefresh = true;
+    lastMutationAt = Date.now();
     const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
     return payload.weekPlans;
   }
@@ -420,7 +422,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
       setMessage(payload.error ?? "添加失败");
       return null;
     }
-    pendingCrossViewRefresh = true;
+    lastMutationAt = Date.now();
     const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
     return payload.weekPlans;
   }
@@ -500,6 +502,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               <Link
                 key={item.key}
                 href={item.href}
+                prefetch={true}
                 className={`flex h-10 items-center gap-3 rounded-md px-3 text-sm transition ${
                   selected
                     ? "bg-blue-50 font-semibold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300"
