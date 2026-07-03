@@ -3,10 +3,22 @@ import { addUtcDays, minutesBetween, nextNDays, startOfUtcDay, toDateKey, weekda
 import { getDb } from "@/lib/db";
 import { isAuthorizedServer } from "@/lib/auth";
 
-export async function getDashboardData() {
+export type DashboardView = "today" | "weekly" | "history" | "reviews" | "stats" | "sync";
+
+// Loads ONLY what the given view renders. All views share one return shape (so
+// the client component types stay unchanged), but unused heavy sections come
+// back empty — e.g. the history notes (rich-text HTML, the payload hog) are
+// only fetched for /history, and the 100-problem list only where it's shown.
+export async function getDashboardData(view: DashboardView = "today") {
   if (!(await isAuthorizedServer())) {
     redirect("/login");
   }
+
+  const wantToday = view === "today";
+  const wantWeekly = view === "weekly";
+  const wantHistory = view === "history";
+  const wantProblems = wantWeekly || view === "reviews" || view === "stats";
+  const wantRecent = wantToday || wantWeekly || wantHistory;
 
   const db = getDb();
   const today = startOfUtcDay(new Date());
@@ -30,41 +42,40 @@ export async function getDashboardData() {
     weekDailyPlans,
   ] =
     await Promise.all([
-      db.dailyPlan.findUnique({
-        where: { date: today },
-        include: {
-          items: {
-            orderBy: { sortOrder: "asc" },
+      wantToday
+        ? db.dailyPlan.findUnique({
+            where: { date: today },
             include: {
-              problem: { include: { progress: true, reviewSchedule: true } },
-              availabilitySlot: true,
-              session: true,
+              items: {
+                orderBy: { sortOrder: "asc" },
+                include: {
+                  problem: { include: { progress: true, reviewSchedule: true } },
+                  availabilitySlot: true,
+                  session: true,
+                },
+              },
             },
-          },
-        },
-      }),
-      db.availability.findMany({
-        where: {
-          date: {
-            gte: today,
-            lt: addUtcDays(today, 7),
-          },
-        },
-        orderBy: { date: "asc" },
-      }),
-      db.availabilitySlot.findMany({
-        where: {
-          date: {
-            gte: today,
-            lt: addUtcDays(today, 7),
-          },
-        },
-        orderBy: [{ date: "asc" }, { startTime: "asc" }],
-      }),
-      db.problem.findMany({
-        orderBy: { hot100Order: "asc" },
-        include: { progress: true, reviewSchedule: true },
-      }),
+          })
+        : Promise.resolve(null),
+      wantWeekly
+        ? db.availability.findMany({
+            where: {
+              date: {
+                gte: today,
+                lt: addUtcDays(today, 7),
+              },
+            },
+            orderBy: { date: "asc" },
+          })
+        : Promise.resolve([]),
+      // Availability slots are legacy (no view renders them); default shape only.
+      Promise.resolve([] as { id: string; date: Date; weekday: number; startTime: string; endTime: string; isAvailable: boolean; availableMinutes: number }[]),
+      wantProblems
+        ? db.problem.findMany({
+            orderBy: { hot100Order: "asc" },
+            include: { progress: true, reviewSchedule: true },
+          })
+        : Promise.resolve([]),
       db.leetCodeSyncState.upsert({
         where: { id: "leetcode-cn" },
         update: {},
@@ -74,41 +85,49 @@ export async function getDashboardData() {
       db.problemProgress.count({ where: { isAccepted: true } }),
       db.reviewSchedule.count({ where: { nextReviewDate: { lte: today } } }),
       db.studySession.count(),
-      db.studySession.groupBy({
-        by: ["problemId"],
-        where: { noteMarkdown: { not: "" } },
-        _count: { _all: true },
-      }),
-      db.leetCodeSubmission.groupBy({
-        by: ["problemId"],
-        _count: { _all: true },
-      }),
-      db.studySession.groupBy({
-        by: ["problemId"],
-        where: { feelingScore: { not: null } },
-        _avg: { feelingScore: true },
-        _count: { _all: true },
-      }),
-      db.dailyPlan.findMany({
-        where: { date: { gte: weekStart, lt: addUtcDays(weekStart, 6) } },
-        orderBy: { date: "asc" },
-        include: {
-          items: {
-            orderBy: { sortOrder: "asc" },
+      wantProblems
+        ? db.studySession.groupBy({
+            by: ["problemId"],
+            where: { noteMarkdown: { not: "" } },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+      wantProblems
+        ? db.leetCodeSubmission.groupBy({
+            by: ["problemId"],
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+      wantToday || wantProblems
+        ? db.studySession.groupBy({
+            by: ["problemId"],
+            where: { feelingScore: { not: null } },
+            _avg: { feelingScore: true },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+      wantWeekly
+        ? db.dailyPlan.findMany({
+            where: { date: { gte: weekStart, lt: addUtcDays(weekStart, 6) } },
+            orderBy: { date: "asc" },
             include: {
-              problem: {
-                select: {
-                  id: true,
-                  frontendId: true,
-                  titleCn: true,
-                  difficulty: true,
-                  leetcodeCnUrl: true,
+              items: {
+                orderBy: { sortOrder: "asc" },
+                include: {
+                  problem: {
+                    select: {
+                      id: true,
+                      frontendId: true,
+                      titleCn: true,
+                      difficulty: true,
+                      leetcodeCnUrl: true,
+                    },
+                  },
                 },
               },
             },
-          },
-        },
-      }),
+          })
+        : Promise.resolve([]),
     ]);
   const noteCountMap = new Map(noteCounts.map((item) => [item.problemId, item._count._all]));
   const codeCountMap = new Map(codeCounts.map((item) => [item.problemId, item._count._all]));
@@ -130,42 +149,54 @@ export async function getDashboardData() {
   const [latestSessions, todayDoneSessions, recentSessions, weekProgressPlans, monthPlans, heatSessions] =
     await Promise.all([
       // Latest sessions for today's plan problems, so a regenerated plan item
-      // still surfaces its history (feedback + notes). Empty `in` returns [].
+      // still surfaces its history (feedback + notes). Self-gating: for other
+      // views todayPlan is null, so the `in` list is empty and this returns [].
       db.studySession.findMany({
         where: { problemId: { in: todayProblemIds } },
         orderBy: { completedAt: "desc" },
       }),
       // Everything studied today (for the "done but dropped from plan" rows).
-      db.studySession.findMany({
-        where: { completedAt: { gte: today } },
-        orderBy: { completedAt: "desc" },
-        include: {
-          problem: {
-            select: { id: true, frontendId: true, titleCn: true, difficulty: true, leetcodeCnUrl: true },
-          },
-        },
-      }),
-      // Recent sessions for the weekly history board + session-day completion.
-      db.studySession.findMany({
-        where: { completedAt: { gte: addUtcDays(today, -13) } },
-        orderBy: { completedAt: "desc" },
-        include: { problem: { select: { id: true, frontendId: true, titleCn: true, difficulty: true } } },
-      }),
+      wantToday
+        ? db.studySession.findMany({
+            where: { completedAt: { gte: today } },
+            orderBy: { completedAt: "desc" },
+            include: {
+              problem: {
+                select: { id: true, frontendId: true, titleCn: true, difficulty: true, leetcodeCnUrl: true },
+              },
+            },
+          })
+        : Promise.resolve([]),
+      // Recent sessions: history board (weekly/history) + session-day completion
+      // (today's metrics, weekly's isCompleted).
+      wantRecent
+        ? db.studySession.findMany({
+            where: { completedAt: { gte: addUtcDays(today, -13) } },
+            orderBy: { completedAt: "desc" },
+            include: { problem: { select: { id: true, frontendId: true, titleCn: true, difficulty: true } } },
+          })
+        : Promise.resolve([]),
       // This calendar week's plans, for "本周进度（新题）".
-      db.dailyPlan.findMany({
-        where: { date: { gte: weekStart, lt: addUtcDays(weekStart, 7) } },
-        include: { items: { select: { problemId: true, isCompleted: true, kind: true } } },
-      }),
+      wantToday
+        ? db.dailyPlan.findMany({
+            where: { date: { gte: weekStart, lt: addUtcDays(weekStart, 7) } },
+            include: { items: { select: { problemId: true, isCompleted: true, kind: true } } },
+          })
+        : Promise.resolve([]),
       // This month's plans, for "本月进度（新题）".
-      db.dailyPlan.findMany({
-        where: { date: { gte: monthStart, lt: monthEnd } },
-        include: { items: { select: { problemId: true, isCompleted: true, kind: true } } },
-      }),
+      wantToday
+        ? db.dailyPlan.findMany({
+            where: { date: { gte: monthStart, lt: monthEnd } },
+            include: { items: { select: { problemId: true, isCompleted: true, kind: true } } },
+          })
+        : Promise.resolve([]),
       // Daily counts for the contribution heatmap.
-      db.studySession.findMany({
-        where: { completedAt: { gte: heatStart } },
-        select: { completedAt: true },
-      }),
+      wantToday
+        ? db.studySession.findMany({
+            where: { completedAt: { gte: heatStart } },
+            select: { completedAt: true },
+          })
+        : Promise.resolve([]),
     ]);
   const sessionsByProblem = new Map<string, typeof latestSessions>();
   // Today's session per problem (latest), so completion/notes survive a re-plan:
@@ -205,26 +236,30 @@ export async function getDashboardData() {
       avgFeelingScore: feelingStatMap.get(session.problemId)?.avg ?? null,
     }));
 
-  // Recent study sessions grouped by day for the weekly history board.
+  // Recent study sessions grouped by day for the weekly/history boards. The
+  // weekly view only shows title + score, so full note text (the payload hog)
+  // ships to /history alone; the today view doesn't render this at all.
   const weekHistoryMap = new Map<
     string,
     { problemId: string; frontendId: number; titleCn: string; difficulty: string; kind: string; feelingScore: number | null; noteMarkdown: string; noteSyntax: string; completedAt: string }[]
   >();
-  for (const session of recentSessions) {
-    const key = toDateKey(session.completedAt);
-    const list = weekHistoryMap.get(key) ?? [];
-    list.push({
-      problemId: session.problemId,
-      frontendId: session.problem.frontendId,
-      titleCn: session.problem.titleCn,
-      difficulty: session.problem.difficulty,
-      kind: session.kind,
-      feelingScore: session.feelingScore,
-      noteMarkdown: session.noteMarkdown,
-      noteSyntax: session.noteSyntax,
-      completedAt: session.completedAt.toISOString(),
-    });
-    weekHistoryMap.set(key, list);
+  if (wantWeekly || wantHistory) {
+    for (const session of recentSessions) {
+      const key = toDateKey(session.completedAt);
+      const list = weekHistoryMap.get(key) ?? [];
+      list.push({
+        problemId: session.problemId,
+        frontendId: session.problem.frontendId,
+        titleCn: session.problem.titleCn,
+        difficulty: session.problem.difficulty,
+        kind: session.kind,
+        feelingScore: session.feelingScore,
+        noteMarkdown: wantHistory ? session.noteMarkdown : "",
+        noteSyntax: wantHistory ? session.noteSyntax : "",
+        completedAt: session.completedAt.toISOString(),
+      });
+      weekHistoryMap.set(key, list);
+    }
   }
   const weekHistory = [...weekHistoryMap.entries()]
     .sort((a, b) => b[0].localeCompare(a[0]))
