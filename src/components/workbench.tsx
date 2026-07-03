@@ -32,7 +32,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { type DragEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { DashboardData } from "@/lib/dashboard-data";
 import { noteToHtml, RICH_PREFIX } from "@/lib/notes";
@@ -67,7 +67,7 @@ const difficultyClass = {
   HARD: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
 };
 const kindLabel = { REVIEW: "复习", RETEST: "重测", NEW: "新题" };
-const APP_VERSION = "v1.4.2";
+const APP_VERSION = "v1.5.0";
 const APP_UPDATED = "2026-07-01";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -265,6 +265,11 @@ function formatYmd(value?: string | null) {
   return `${String(date.getUTCFullYear()).slice(2)}/${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
 }
 
+// With the 30s client router cache (staleTimes), other tabs could briefly show
+// pre-mutation data. Any successful mutation sets this flag; on the next
+// navigation the freshly shown (possibly cached) page is refreshed in place.
+let pendingCrossViewRefresh = false;
+
 export function Workbench({ data, active }: { data: DashboardData; active: ActiveView }) {
   const [cookie, setCookie] = useState("");
   const [busy, setBusy] = useState("");
@@ -278,6 +283,17 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
       : "dark",
   );
   const router = useRouter();
+  const pathname = usePathname();
+
+  // Arriving on a (possibly cached) page after a mutation elsewhere: re-fetch
+  // it in place so every view is guaranteed fresh, while the cached content
+  // shows instantly.
+  useEffect(() => {
+    if (pendingCrossViewRefresh) {
+      pendingCrossViewRefresh = false;
+      router.refresh();
+    }
+  }, [pathname, router]);
 
   function toggleSidebar() {
     setSidebarOpen((prev) =>
@@ -311,6 +327,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
       return false;
     }
 
+    pendingCrossViewRefresh = true;
     return true;
   }
 
@@ -332,6 +349,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
       return null;
     }
 
+    pendingCrossViewRefresh = true;
     const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
     return payload.weekPlans;
   }
@@ -351,6 +369,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
       setMessage(payload.error ?? "移动失败");
       return null;
     }
+    pendingCrossViewRefresh = true;
     const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
     return payload.weekPlans;
   }
@@ -370,6 +389,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
       setMessage(payload.error ?? "添加失败");
       return null;
     }
+    pendingCrossViewRefresh = true;
     const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
     return payload.weekPlans;
   }

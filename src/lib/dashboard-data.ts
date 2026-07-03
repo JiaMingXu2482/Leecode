@@ -441,29 +441,32 @@ export async function getDashboardData(view: DashboardView = "today") {
     },
     availability,
     slots,
+    // The weekly view only uses the problem list for its search box (id/#/title/
+    // difficulty/isEnabled), so the rest ships as cheap defaults there.
     problems: problems.map((problem) => ({
       id: problem.id,
       frontendId: problem.frontendId,
       titleCn: problem.titleCn,
-      slug: problem.slug,
+      slug: wantWeekly ? "" : problem.slug,
       difficulty: problem.difficulty,
-      tags: problem.tags,
+      tags: wantWeekly ? "" : problem.tags,
       isEnabled: problem.isEnabled,
-      isAccepted: problem.progress?.isAccepted ?? false,
-      mastery: problem.progress?.mastery ?? null,
-      nextReviewDate: problem.reviewSchedule?.nextReviewDate
-        ? toDateKey(problem.reviewSchedule.nextReviewDate)
-        : null,
-      lastAcceptedAt: problem.progress?.lastAcceptedAt?.toISOString() ?? null,
-      lastSubmittedAt: problem.progress?.lastSubmittedAt?.toISOString() ?? null,
-      totalSubmissions: problem.progress?.totalSubmissions ?? 0,
-      acceptedSubmissions: problem.progress?.acceptedSubmissions ?? 0,
-      acceptedRate: problem.progress?.acceptedRate ?? 0,
-      reviewRiskScore: problem.progress?.reviewRiskScore ?? 0,
-      noteCount: noteCountMap.get(problem.id) ?? 0,
-      codeCount: codeCountMap.get(problem.id) ?? 0,
-      avgFeelingScore: feelingStatMap.get(problem.id)?.avg ?? null,
-      feelingSessionCount: feelingStatMap.get(problem.id)?.count ?? 0,
+      isAccepted: wantWeekly ? false : problem.progress?.isAccepted ?? false,
+      mastery: wantWeekly ? null : problem.progress?.mastery ?? null,
+      nextReviewDate:
+        !wantWeekly && problem.reviewSchedule?.nextReviewDate
+          ? toDateKey(problem.reviewSchedule.nextReviewDate)
+          : null,
+      lastAcceptedAt: wantWeekly ? null : problem.progress?.lastAcceptedAt?.toISOString() ?? null,
+      lastSubmittedAt: wantWeekly ? null : problem.progress?.lastSubmittedAt?.toISOString() ?? null,
+      totalSubmissions: wantWeekly ? 0 : problem.progress?.totalSubmissions ?? 0,
+      acceptedSubmissions: wantWeekly ? 0 : problem.progress?.acceptedSubmissions ?? 0,
+      acceptedRate: wantWeekly ? 0 : problem.progress?.acceptedRate ?? 0,
+      reviewRiskScore: wantWeekly ? 0 : problem.progress?.reviewRiskScore ?? 0,
+      noteCount: wantWeekly ? 0 : noteCountMap.get(problem.id) ?? 0,
+      codeCount: wantWeekly ? 0 : codeCountMap.get(problem.id) ?? 0,
+      avgFeelingScore: wantWeekly ? null : feelingStatMap.get(problem.id)?.avg ?? null,
+      feelingSessionCount: wantWeekly ? 0 : feelingStatMap.get(problem.id)?.count ?? 0,
       leetcodeCnUrl: problem.leetcodeCnUrl,
     })),
     syncState: {
