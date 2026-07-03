@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { type DragEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { type DragEvent, type KeyboardEvent, useEffect, useRef, useState, useTransition } from "react";
 import type { DashboardData } from "@/lib/dashboard-data";
 import { noteToHtml, RICH_PREFIX } from "@/lib/notes";
 import { TOPIC_GROUPS } from "@/lib/topics";
@@ -77,7 +77,7 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.6.1";
+const APP_VERSION = "v1.6.2";
 const APP_UPDATED = "2026-07-03";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -296,12 +296,16 @@ function formatYmd(value?: string | null) {
   return `${String(date.getUTCFullYear()).slice(2)}/${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
 }
 
-// With the client router cache + fully prefetched nav links (staleTimes),
-// other tabs could show pre-mutation data. Mutations record a timestamp and
-// every page re-fetches in place on its FIRST visit after that timestamp —
-// cached content still renders instantly, then updates without flicker.
+// Stale-while-revalidate over the long-lived client router cache: pages always
+// render instantly from cache, and freshness happens in the background —
+// (1) after any mutation every page re-fetches on its next visit, (2) arriving
+// on a page whose data is older than REFRESH_AFTER_MS re-fetches it in place,
+// (3) window focus refreshes the current page and re-warms the other tabs.
 let lastMutationAt = 0;
+let firstMount = true;
+let lastWarmAt = 0;
 const lastRefreshedAt: Record<string, number> = {};
+const REFRESH_AFTER_MS = 60_000;
 
 export function Workbench({ data, active }: { data: DashboardData; active: ActiveView }) {
   const [cookie, setCookie] = useState("");
@@ -317,15 +321,53 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
   );
   const router = useRouter();
   const pathname = usePathname();
+  const [isRefreshing, startRefresh] = useTransition();
 
-  // Arriving on a (possibly cached) page that hasn't been refreshed since the
-  // last mutation: re-fetch it in place so every view is guaranteed fresh,
-  // while the cached content shows instantly.
+  // Background freshness on arrival: the cached page shows instantly; if its
+  // data predates the last mutation, is of unknown age (first consumption of a
+  // prefetched entry), or is older than REFRESH_AFTER_MS, re-fetch in place.
+  // The very first render of a session is the SSR response — fresh by
+  // definition — so it's only stamped.
   useEffect(() => {
-    if (lastMutationAt > (lastRefreshedAt[pathname] ?? 0)) {
-      lastRefreshedAt[pathname] = Date.now();
+    const now = Date.now();
+    const stamp = lastRefreshedAt[pathname] ?? 0;
+    if (firstMount) {
+      firstMount = false;
+      lastRefreshedAt[pathname] = now;
+      return;
+    }
+    if (stamp === 0 || lastMutationAt > stamp || now - stamp > REFRESH_AFTER_MS) {
+      lastRefreshedAt[pathname] = now;
       router.refresh();
     }
+  }, [pathname, router]);
+
+  // Returning to the tab (e.g. after solving on LeetCode): refresh the current
+  // view and re-warm the other tabs' prefetch entries so even a long-idle
+  // session never falls back to the loading screen. Throttled to 2 min.
+  useEffect(() => {
+    function warm() {
+      const now = Date.now();
+      if (document.hidden || now - lastWarmAt < 120_000) {
+        return;
+      }
+      lastWarmAt = now;
+      if (now - (lastRefreshedAt[pathname] ?? 0) > 30_000) {
+        lastRefreshedAt[pathname] = now;
+        router.refresh();
+      }
+      for (const item of navItems) {
+        if (item.href !== pathname) {
+          router.prefetch(item.href);
+        }
+      }
+    }
+    window.addEventListener("focus", warm);
+    document.addEventListener("visibilitychange", warm);
+    return () => {
+      window.removeEventListener("focus", warm);
+      document.removeEventListener("visibilitychange", warm);
+    };
   }, [pathname, router]);
 
   function toggleSidebar() {
@@ -550,6 +592,16 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  lastRefreshedAt[pathname] = Date.now();
+                  startRefresh(() => router.refresh());
+                }}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line text-fg-muted hover:bg-muted"
+                title="手动刷新当前页数据"
+              >
+                <RefreshCw size={16} className={isRefreshing ? "animate-spin" : ""} />
+              </button>
               <button
                 onClick={toggleTheme}
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line text-fg-muted hover:bg-muted"
