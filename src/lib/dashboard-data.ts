@@ -23,9 +23,9 @@ export async function getDashboardData(view: DashboardView = "today") {
   const db = getDb();
   const today = startOfUtcDay(new Date());
   const upcomingDates = nextNDays(7, today);
-  // Current calendar week, Monday–Saturday (Sunday is a rest day, not shown).
+  // Current calendar week, Monday–Sunday.
   const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7));
-  const weekDays = Array.from({ length: 6 }, (_, index) => addUtcDays(weekStart, index));
+  const weekDays = Array.from({ length: 7 }, (_, index) => addUtcDays(weekStart, index));
   const [
     todayPlan,
     availabilityRows,
@@ -108,7 +108,7 @@ export async function getDashboardData(view: DashboardView = "today") {
         : Promise.resolve([]),
       wantWeekly
         ? db.dailyPlan.findMany({
-            where: { date: { gte: weekStart, lt: addUtcDays(weekStart, 6) } },
+            where: { date: { gte: weekStart, lt: addUtcDays(weekStart, 7) } },
             orderBy: { date: "asc" },
             include: {
               items: {

@@ -77,7 +77,7 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.6.2";
+const APP_VERSION = "v1.6.3";
 const APP_UPDATED = "2026-07-03";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -1297,7 +1297,12 @@ function MasteryStat({ label, hint, value, tone }: { label: string; hint: string
 function StatsView({ data }: { data: DashboardData; completion: number }) {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const scored = data.problems
-    .filter((problem) => problem.feelingSessionCount > 0 && problem.avgFeelingScore !== null)
+    .filter(
+      (problem) =>
+        problem.isEnabled !== false &&
+        problem.feelingSessionCount > 0 &&
+        problem.avgFeelingScore !== null,
+    )
     .sort((a, b) => {
       const diff = (a.avgFeelingScore ?? 0) - (b.avgFeelingScore ?? 0);
       return sortDir === "asc" ? diff : -diff;
@@ -1652,8 +1657,6 @@ function heatLevelClass(count: number, future: boolean) {
 function TodayOverview({ data }: { data: DashboardData }) {
   const heatmap = data.heatmap;
   const { weekNew, monthNew, mastered } = data.metrics;
-  const weekPct = weekNew.target ? Math.round((weekNew.done / weekNew.target) * 100) : 0;
-  const monthPct = monthNew.target ? Math.round((monthNew.done / monthNew.target) * 100) : 0;
 
   const start = new Date(`${heatmap.start}T00:00:00Z`);
   const columns = Array.from({ length: heatmap.weeks }, (_, w) =>
@@ -1679,9 +1682,9 @@ function TodayOverview({ data }: { data: DashboardData }) {
   return (
     <section className="rounded-lg border border-line bg-surface p-4">
       <div className="grid grid-cols-3 gap-4">
-        <OverviewStat label="本周进度" value={`${weekNew.done}/${weekNew.target}`} hint={`${weekPct}% · 本周新题`} />
-        <OverviewStat label="本月进度" value={`${monthNew.done}/${monthNew.target}`} hint={`${monthPct}% · 本月新题`} />
-        <OverviewStat label="累计完成" value={`${mastered}`} hint="平均分 < 3 的题数" />
+        <OverviewStat label="本周进度" value={`${weekNew.done}/${weekNew.target}`} />
+        <OverviewStat label="本月进度" value={`${monthNew.done}/${monthNew.target}`} />
+        <OverviewStat label="累计完成" value={`${mastered}`} />
       </div>
       <div className="mt-5 border-t border-line pt-5">
         <div className="mx-auto w-max max-w-full overflow-x-auto overflow-y-hidden">
@@ -1711,12 +1714,11 @@ function TodayOverview({ data }: { data: DashboardData }) {
   );
 }
 
-function OverviewStat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function OverviewStat({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="text-center">
       <div className="text-xs font-medium text-fg-subtle">{label}</div>
       <div className="mt-1 text-2xl font-semibold tracking-tight">{value}</div>
-      {hint ? <div className="mt-0.5 text-[11px] text-fg-subtle">{hint}</div> : null}
     </div>
   );
 }

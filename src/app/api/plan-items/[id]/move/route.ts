@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthorizedRequest } from "@/lib/auth";
-import { fromDateKey, startOfUtcDay, weekdayIndex } from "@/lib/dates";
+import { fromDateKey, startOfUtcDay } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { loadWeekPlans } from "@/lib/week-plans";
 
@@ -20,9 +20,6 @@ export async function POST(
     return NextResponse.json({ error: "日期无效" }, { status: 400 });
   }
   const target = fromDateKey(body.date);
-  if (weekdayIndex(target) === 0) {
-    return NextResponse.json({ error: "周日休息，不排题" }, { status: 400 });
-  }
 
   const db = getDb();
   const item = await db.planItem.findUnique({ where: { id }, include: { dailyPlan: true } });

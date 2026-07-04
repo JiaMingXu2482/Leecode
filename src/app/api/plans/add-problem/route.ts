@@ -1,6 +1,6 @@
 import { PlanItemKind } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
-import { fromDateKey, startOfUtcDay, weekdayIndex } from "@/lib/dates";
+import { fromDateKey, startOfUtcDay } from "@/lib/dates";
 import { isAuthorizedRequest } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { loadWeekPlans } from "@/lib/week-plans";
@@ -19,9 +19,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "缺少题目" }, { status: 400 });
   }
   const date = fromDateKey(body.date);
-  if (weekdayIndex(date) === 0) {
-    return NextResponse.json({ error: "周日休息，不排题" }, { status: 400 });
-  }
 
   const db = getDb();
   const problem = await db.problem.findUnique({

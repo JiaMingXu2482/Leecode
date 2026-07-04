@@ -28,21 +28,19 @@ export async function POST(request: NextRequest) {
   const db = getDb();
   const today = startOfUtcDay(new Date());
   const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7)); // Monday
-  const saturday = addUtcDays(weekStart, 5);
-  const endExclusive = addUtcDays(saturday, 1);
+  const weekEnd = addUtcDays(weekStart, 6); // Sunday
+  const endExclusive = addUtcDays(weekEnd, 1);
 
-  // Plan the remaining study days of this week: today → Saturday (Sunday rests).
+  // Plan the remaining days of this week: today → Sunday.
   const windowDates: Date[] = [];
-  for (let d = new Date(today); d.getTime() <= saturday.getTime(); d = addUtcDays(d, 1)) {
-    if (weekdayIndex(d) !== 0) {
-      windowDates.push(new Date(d));
-    }
+  for (let d = new Date(today); d.getTime() <= weekEnd.getTime(); d = addUtcDays(d, 1)) {
+    windowDates.push(new Date(d));
   }
   if (windowDates.length === 0) {
     return NextResponse.json({ weekPlans: await loadWeekPlans(today) });
   }
   const firstKey = toDateKey(windowDates[0]);
-  const lastKey = toDateKey(saturday);
+  const lastKey = toDateKey(weekEnd);
 
   // Preserve already-completed items — re-planning must never drop done work.
   const existingPlans = await db.dailyPlan.findMany({
@@ -59,7 +57,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Reviews land on their due day (overdue ones catch up on today); anything due
-  // after this Saturday waits for a later week.
+  // after this week waits for a later week.
   const schedules = await db.reviewSchedule.findMany({
     where: { problem: { isEnabled: true } },
     include: { problem: { select: { estimatedReviewMinutes: true } } },
@@ -74,7 +72,7 @@ export async function POST(request: NextRequest) {
     if (dueKey < firstKey) {
       dueKey = firstKey; // overdue → today
     }
-    if (dueKey > lastKey || weekdayIndex(new Date(`${dueKey}T00:00:00Z`)) === 0) {
+    if (dueKey > lastKey) {
       continue;
     }
     assigned.add(schedule.problemId);
