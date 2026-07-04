@@ -77,7 +77,7 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.6.3";
+const APP_VERSION = "v1.6.4";
 const APP_UPDATED = "2026-07-03";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -860,7 +860,7 @@ function WeeklyView({
           onClick={regenerate}
           disabled={busy}
           className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-line-strong px-2.5 text-xs font-medium text-fg-muted hover:bg-muted disabled:opacity-40"
-          title="重新排本周（每天至少 3 道新题 + 到期复习；会打乱未完成的题）"
+          title="重新排本周（每天 4 道新题 + 到期复习；会打乱未完成的题）"
         >
           <RefreshCw size={13} />
           重排本周

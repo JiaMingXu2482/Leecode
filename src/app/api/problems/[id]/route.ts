@@ -59,7 +59,7 @@ export async function PUT(
 
   // Excluding a problem drops its review schedule and removes it from today's
   // and upcoming daily plans so it disappears right away. Study history is
-  // kept, and this week's days are topped back up to 3 new problems each.
+  // kept, and this week's days are topped back up to the per-day quota.
   if (body.isEnabled === false) {
     const today = startOfUtcDay(new Date());
     await db.reviewSchedule.deleteMany({ where: { problemId: id } });

@@ -43,7 +43,7 @@ export async function PATCH(request: NextRequest) {
 
   // Excluding a problem drops its review schedule and removes it from today's
   // and upcoming daily plans so it disappears from the plan right away. This
-  // week's days are then topped back up to 3 new problems each.
+  // week's days are then topped back up to the per-day new-problem quota.
   if (body.isEnabled === false) {
     const today = startOfUtcDay(new Date());
     await db.reviewSchedule.deleteMany({ where: { problemId: { in: body.problemIds } } });

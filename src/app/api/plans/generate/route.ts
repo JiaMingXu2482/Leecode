@@ -4,15 +4,10 @@ import { addUtcDays, startOfUtcDay, toDateKey, weekdayIndex } from "@/lib/dates"
 import { isAuthorizedRequest } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { calculateReviewRiskScore } from "@/lib/risk";
-import { loadWeekPlans } from "@/lib/week-plans";
+import { loadWeekPlans, NEW_PER_DAY } from "@/lib/week-plans";
 
 type CandidateKind = "review" | "retest" | "new";
 type Candidate = { problemId: string; kind: CandidateKind; estimatedMinutes: number };
-
-// Fixed number of NEW problems scheduled per study day (the user wants to finish
-// the plan within a month). Reviews are placed on their due day on top of this,
-// with no per-day cap.
-const NEW_PER_DAY = 3;
 
 function planKind(kind: CandidateKind): PlanItemKind {
   if (kind === "review") return "REVIEW";

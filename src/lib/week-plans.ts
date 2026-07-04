@@ -1,7 +1,9 @@
 import { addUtcDays, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 
-const NEW_PER_DAY = 3;
+// Fixed number of NEW problems scheduled per day (shared by the weekly
+// generator and the exclude-backfill below).
+export const NEW_PER_DAY = 4;
 
 // After problems are excluded (which deletes their upcoming plan items), top
 // the remaining days of this week back up to NEW_PER_DAY new problems each, so
