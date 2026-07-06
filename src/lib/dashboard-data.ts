@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { addUtcDays, minutesBetween, nextNDays, startOfUtcDay, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { isAuthorizedServer } from "@/lib/auth";
+import { ensureTodayPlan } from "@/lib/week-plans";
 
 export type DashboardView = "today" | "weekly" | "history" | "reviews" | "stats" | "sync";
 
@@ -26,6 +27,12 @@ export async function getDashboardData(view: DashboardView = "today") {
   // Current calendar week, Monday–Sunday.
   const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7));
   const weekDays = Array.from({ length: 7 }, (_, index) => addUtcDays(weekStart, index));
+
+  // Self-heal today's plan (due reviews + the daily new-problem quota) before
+  // reading, so a fresh day never shows a stale or empty task list.
+  if (wantToday || wantWeekly) {
+    await ensureTodayPlan(today);
+  }
   const [
     todayPlan,
     availabilityRows,

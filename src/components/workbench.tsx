@@ -13,6 +13,7 @@ import {
   ChevronDown,
   Code2,
   DatabaseZap,
+  Eraser,
   ExternalLink,
   GripVertical,
   Highlighter,
@@ -77,7 +78,7 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.6.4";
+const APP_VERSION = "v1.7.0";
 const APP_UPDATED = "2026-07-03";
 const DEFAULT_DAILY_COUNT = 3;
 
@@ -180,6 +181,11 @@ function RichNoteEditor({
     if (ref.current) {
       ref.current.innerHTML = noteToHtml(initial);
     }
+    // Enter inserts <br> instead of wrapping lines in <div>s — keeps the
+    // stored HTML flat and predictable alongside plain-text pastes.
+    try {
+      document.execCommand("defaultParagraphSeparator", false, "br");
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -205,6 +211,18 @@ function RichNoteEditor({
     if (event.key === "Tab") {
       event.preventDefault();
       document.execCommand("insertText", false, "    ");
+      emit();
+    }
+  }
+
+  // Paste as plain text. Clipboard HTML from code editors (e.g. LeetCode's
+  // Monaco) carries its own styled blocks that trap the caret — pasted content
+  // keeps line breaks/indentation but adopts the editor's uniform style.
+  function onPaste(event: React.ClipboardEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const text = event.clipboardData.getData("text/plain");
+    if (text) {
+      document.execCommand("insertText", false, text);
       emit();
     }
   }
@@ -258,6 +276,16 @@ function RichNoteEditor({
         <span className="mx-0.5 h-4 w-px bg-line" />
         <ColorButton icon={<Baseline size={15} />} title="字体颜色" onPick={(color) => applyColor("foreColor", color)} onClear={clearFontColor} />
         <ColorButton icon={<Highlighter size={15} />} title="突出显示（高亮）" onPick={(color) => applyColor("hiliteColor", color)} onClear={clearHighlight} />
+        <span className="mx-0.5 h-4 w-px bg-line" />
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => exec("removeFormat")}
+          className={NOTE_TOOL_BTN}
+          title="清除格式（选中文字后点击，恢复为普通文本）"
+        >
+          <Eraser size={15} />
+        </button>
       </div>
       <div
         ref={ref}
@@ -265,6 +293,7 @@ function RichNoteEditor({
         suppressContentEditableWarning
         onInput={emit}
         onKeyDown={onKeyDown}
+        onPaste={onPaste}
         data-placeholder={placeholder}
         spellCheck={false}
         className="note-editor min-h-[28rem] w-full overflow-auto whitespace-pre-wrap p-3 font-mono text-[15px] leading-7 outline-none"
