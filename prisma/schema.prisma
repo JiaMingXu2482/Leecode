@@ -195,6 +195,11 @@ model AppSettings {
   appPasswordHash     String    @default("")
   defaultDailyMinutes Int       @default(150)
   targetDate          DateTime?
+  // JSON array of TOPIC_GROUPS names whose new problems get scheduled first
+  // (one per category per day). "" = never set → code default applies.
+  priorityCategories  String    @default("")
+  // Per-day new-problem quota; 0 = use the code default (NEW_PER_DAY).
+  newPerDay           Int       @default(0)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 }

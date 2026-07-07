@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Search,
   Settings2,
+  Sparkles,
   Sun,
   Target,
   X,
@@ -72,9 +73,8 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.8.0";
-const APP_UPDATED = "2026-07-03";
-const DEFAULT_DAILY_COUNT = 3;
+const APP_VERSION = "v1.9.0";
+const APP_UPDATED = "2026-07-06";
 
 // Monaco (the engine behind LeetCode's code editor) is heavy, so it loads on
 // demand — only when a feedback panel actually opens.
@@ -220,16 +220,12 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
     return true;
   }
 
-  // Regenerate the whole week from per-day problem counts. Returns the fresh
-  // week plans so the weekly view can update in place (real-time).
-  async function generateWeekly(counts: Record<string, number>) {
+  // Full re-plan of the current week (due reviews + per-day new quota, priority
+  // categories first). Returns fresh week plans so the view updates in place.
+  async function generateWeekly() {
     setBusy("/api/plans/generate");
     setMessage("");
-    const response = await fetch("/api/plans/generate", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ counts }),
-    });
+    const response = await fetch("/api/plans/generate", { method: "POST" });
     setBusy("");
 
     if (!response.ok) {
@@ -241,6 +237,40 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
     lastMutationAt = Date.now();
     const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
     return payload.weekPlans;
+  }
+
+  // Send one instruction to the plan assistant (DeepSeek-backed). Returns the
+  // assistant's reply and, when it changed anything, the fresh week plans.
+  async function askAssistant(message: string) {
+    setBusy("/api/assistant");
+    setMessage("");
+    const response = await fetch("/api/assistant", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    setBusy("");
+    const payload = (await response.json().catch(() => ({}))) as {
+      reply?: string;
+      weekPlans?: DashboardData["weekPlans"];
+      error?: string;
+    };
+    if (!response.ok) {
+      return { reply: payload.error ?? "助手暂时不可用", weekPlans: null };
+    }
+    lastMutationAt = Date.now();
+    return { reply: payload.reply ?? "已处理。", weekPlans: payload.weekPlans ?? null };
+  }
+
+  // Toggle a category's priority flag (刷题计划 page). Priority categories get
+  // one new problem each per day when scheduling.
+  async function togglePriorityCategory(name: string) {
+    const current = data.planSettings.priorityCategories;
+    const next = current.includes(name)
+      ? current.filter((item) => item !== name)
+      : [...current, name];
+    const ok = await requestJson("/api/settings", { priorityCategories: next }, "POST");
+    if (ok) router.refresh();
   }
 
   // Move a single problem to a specific day (drag-and-drop) without reshuffling.
@@ -451,12 +481,18 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               onGenerate={generateWeekly}
               onMove={moveItem}
               onAddProblem={addProblemToDay}
+              onAsk={askAssistant}
               busy={Boolean(busy)}
             />
           ) : null}
           {active === "history" ? <HistoryView data={data} /> : null}
           {active === "reviews" ? (
-            <TopicsView data={data} onToggleEnabled={setProblemEnabled} onBulkToggle={bulkSetEnabled} />
+            <TopicsView
+              data={data}
+              onToggleEnabled={setProblemEnabled}
+              onBulkToggle={bulkSetEnabled}
+              onTogglePriority={togglePriorityCategory}
+            />
           ) : null}
           {active === "stats" ? <StatsView data={data} completion={completion} /> : null}
           {active === "sync" ? (
@@ -597,6 +633,7 @@ function WeeklyView({
   onGenerate,
   onMove,
   onAddProblem,
+  onAsk,
   busy,
 }: {
   days: WeekDay[];
@@ -604,14 +641,17 @@ function WeeklyView({
   history: DashboardData["weekHistory"];
   problems: DashboardData["problems"];
   today: string;
-  onGenerate: (counts: Record<string, number>) => Promise<WeekPlans | null>;
+  onGenerate: () => Promise<WeekPlans | null>;
   onMove: (id: string, date: string) => Promise<WeekPlans | null>;
   onAddProblem: (date: string, problemId: string) => Promise<WeekPlans | null>;
+  onAsk: (message: string) => Promise<{ reply: string; weekPlans: WeekPlans | null }>;
   busy: boolean;
 }) {
   const [plans, setPlans] = useState(initialPlans);
   const [query, setQuery] = useState("");
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+  const [assistantInput, setAssistantInput] = useState("");
+  const [assistantReply, setAssistantReply] = useState("");
   const plansByDate = new Map(plans.map((plan) => [plan.date, plan.items]));
   const todayKey = days[0]?.date ?? "";
   const pastDays = history.filter((day) => day.date < todayKey);
@@ -655,16 +695,23 @@ function WeeklyView({
     }
   }
 
-  // Deliberate full re-plan of the week, keeping each day's current size (blank
-  // days default to DEFAULT_DAILY_COUNT so they get seeded).
   async function regenerate() {
-    const counts: Record<string, number> = {};
-    for (const day of days) {
-      const len = plansByDate.get(day.date)?.length ?? 0;
-      counts[day.date] = len > 0 ? len : DEFAULT_DAILY_COUNT;
-    }
-    const result = await onGenerate(counts);
+    const result = await onGenerate();
     if (result) setPlans(result);
+  }
+
+  async function sendToAssistant() {
+    const message = assistantInput.trim();
+    if (!message || busy) {
+      return;
+    }
+    setAssistantReply("…");
+    const { reply, weekPlans } = await onAsk(message);
+    setAssistantReply(reply);
+    if (weekPlans) {
+      setPlans(weekPlans);
+      setAssistantInput("");
+    }
   }
 
   return (
@@ -674,11 +721,44 @@ function WeeklyView({
           onClick={regenerate}
           disabled={busy}
           className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-line-strong px-2.5 text-xs font-medium text-fg-muted hover:bg-muted disabled:opacity-40"
-          title="重新排本周（每天 4 道新题 + 到期复习；会打乱未完成的题）"
+          title="重新排本周（到期复习 + 每日新题配额，优先类别先排；会打乱未完成的题）"
         >
           <RefreshCw size={13} />
           重排本周
         </button>
+      </div>
+
+      <div className="rounded-lg border border-line bg-surface p-3">
+        <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+          <Sparkles size={15} className="text-amber-500" />
+          计划助手
+          <span className="text-xs font-normal text-fg-subtle">
+            用一句话调整计划，比如「优先刷回溯和DP」「每天改成5道新题」「把接雨水加到周六」
+          </span>
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={assistantInput}
+            onChange={(event) => setAssistantInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                void sendToAssistant();
+              }
+            }}
+            placeholder="告诉助手你想怎么排…"
+            className="h-9 min-w-0 flex-1 rounded-md border border-line bg-canvas px-3 text-sm outline-none focus:border-line-strong"
+          />
+          <button
+            onClick={() => void sendToAssistant()}
+            disabled={busy || !assistantInput.trim()}
+            className="inline-flex h-9 shrink-0 items-center rounded-md bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-btn-strong"
+          >
+            {busy ? "处理中…" : "发送"}
+          </button>
+        </div>
+        {assistantReply ? (
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-fg-muted">{assistantReply}</p>
+        ) : null}
       </div>
       <div>
         <div className="relative">
@@ -987,10 +1067,12 @@ function TopicsView({
   data,
   onToggleEnabled,
   onBulkToggle,
+  onTogglePriority,
 }: {
   data: DashboardData;
   onToggleEnabled: (problemId: string, isEnabled: boolean) => void;
   onBulkToggle: (problemIds: string[], isEnabled: boolean) => void;
+  onTogglePriority: (name: string) => void;
 }) {
   const [showScore, setShowScore] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -1012,7 +1094,9 @@ function TopicsView({
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-fg-subtle">勾选「不刷」把题目或整类排除出刷题列表（不会删除，排除的题变浅显示，整类排除会折叠并沉到底部）。</p>
+        <p className="text-sm text-fg-subtle">
+          点分类标题旁的 ⭐ 设为优先：排题时每天先从每个优先类各取一道新题，剩余名额按 Hot100 顺序补。勾选「不刷」把题目或整类排除出刷题列表。
+        </p>
         <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
           <input type="checkbox" checked={showScore} onChange={(event) => setShowScore(event.target.checked)} />
           显示做题反馈平均分
@@ -1034,6 +1118,18 @@ function TopicsView({
                 <span className="font-semibold">{group.name}</span>
                 <span className="text-xs text-fg-subtle">{group.enabledCount}/{group.total} 刷</span>
               </button>
+              <div className="flex shrink-0 items-center gap-2">
+              <button
+                onClick={() => onTogglePriority(group.name)}
+                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium ${
+                  data.planSettings.priorityCategories.includes(group.name)
+                    ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300"
+                    : "border-line-strong text-fg-subtle hover:bg-muted"
+                }`}
+                title="优先类别：排题时每天先从这里取一道新题（改完点周计划的「重排本周」立即生效）"
+              >
+                ⭐ {data.planSettings.priorityCategories.includes(group.name) ? "优先中" : "设为优先"}
+              </button>
               <button
                 onClick={() => onBulkToggle(ids, group.allExcluded)}
                 className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-medium ${
@@ -1044,6 +1140,7 @@ function TopicsView({
               >
                 {group.allExcluded ? "恢复整类" : "整类不刷"}
               </button>
+              </div>
             </div>
             {isCollapsed ? null : (
               <ul>

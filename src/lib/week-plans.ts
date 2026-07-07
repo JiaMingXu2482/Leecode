@@ -1,9 +1,14 @@
 import { addUtcDays, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
+import { orderDailyNewPicks } from "@/lib/new-problem-picker";
+import { getPlanSettings } from "@/lib/settings";
 
-// Fixed number of NEW problems scheduled per day (shared by the weekly
-// generator and the exclude-backfill below).
-export const NEW_PER_DAY = 4;
+// "New" = not yet studied in this app; a historical LeetCode AC doesn't count.
+export const NEW_POOL_WHERE = {
+  isEnabled: true,
+  reviewSchedule: null,
+  sessions: { none: {} },
+} as const;
 
 // Self-healing daily plan, run when the dashboard loads: make sure TODAY has
 // all due/overdue reviews and NEW_PER_DAY new problems. Idempotent and purely
@@ -28,7 +33,8 @@ async function doEnsureTodayPlan(today: Date) {
   const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7));
   const weekEndExclusive = addUtcDays(weekStart, 7);
 
-  const [weekItems, dueSchedules, todayPlanRow] = await Promise.all([
+  const [settings, weekItems, dueSchedules, todayPlanRow] = await Promise.all([
+    getPlanSettings(),
     db.planItem.findMany({
       where: { dailyPlan: { date: { gte: weekStart, lt: weekEndExclusive } } },
       select: { problemId: true },
@@ -47,7 +53,7 @@ async function doEnsureTodayPlan(today: Date) {
   const planned = new Set(weekItems.map((row) => row.problemId));
   const missingReviews = dueSchedules.filter((schedule) => !planned.has(schedule.problemId));
   const todayNewCount = todayPlanRow?.items.filter((item) => item.kind === "NEW").length ?? 0;
-  const newNeeded = Math.max(0, NEW_PER_DAY - todayNewCount);
+  const newNeeded = Math.max(0, settings.newPerDay - todayNewCount);
 
   // Fast path: today is already fully planned.
   if (todayPlanRow && !missingReviews.length && newNeeded === 0) {
@@ -78,23 +84,18 @@ async function doEnsureTodayPlan(today: Date) {
   }
 
   if (newNeeded > 0) {
-    // "New" = not yet studied in this app; a historical LeetCode AC doesn't count.
     const pool = await db.problem.findMany({
-      where: {
-        isEnabled: true,
-        reviewSchedule: null,
-        sessions: { none: {} },
-      },
+      where: NEW_POOL_WHERE,
       orderBy: { hot100Order: "asc" },
-      take: 100,
     });
-    let added = 0;
-    for (const problem of pool) {
-      if (added >= newNeeded) break;
-      if (planned.has(problem.id)) continue;
+    const picks = orderDailyNewPicks(
+      pool.filter((problem) => !planned.has(problem.id)),
+      settings.priorityCategories,
+      newNeeded,
+    );
+    for (const problem of picks) {
       planned.add(problem.id);
       sortOrder += 1;
-      added += 1;
       addedMinutes += problem.estimatedNewMinutes;
       await db.planItem.create({
         data: {
@@ -120,13 +121,14 @@ async function doEnsureTodayPlan(today: Date) {
 }
 
 // After problems are excluded (which deletes their upcoming plan items), top
-// the remaining days of this week back up to NEW_PER_DAY new problems each, so
+// the remaining days of this week back up to the per-day new-problem quota, so
 // excluding a planned problem doesn't quietly shrink a day's plan.
 export async function topUpNewProblems(today: Date) {
   const db = getDb();
   const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7));
   const weekEndExclusive = addUtcDays(weekStart, 7);
-  const [plans, weekItems, pool] = await Promise.all([
+  const [settings, plans, weekItems, pool] = await Promise.all([
+    getPlanSettings(),
     db.dailyPlan.findMany({
       where: { date: { gte: today, lt: weekEndExclusive } },
       include: { items: { select: { kind: true } } },
@@ -137,29 +139,27 @@ export async function topUpNewProblems(today: Date) {
       select: { problemId: true },
     }),
     db.problem.findMany({
-      where: {
-        isEnabled: true,
-        reviewSchedule: null,
-        sessions: { none: {} },
-      },
+      where: NEW_POOL_WHERE,
       orderBy: { hot100Order: "asc" },
-      take: 150,
     }),
   ]);
 
   const assigned = new Set(weekItems.map((row) => row.problemId));
-  let cursor = 0;
   for (const plan of plans) {
-    let newCount = plan.items.filter((item) => item.kind === "NEW").length;
-    while (newCount < NEW_PER_DAY) {
-      while (cursor < pool.length && assigned.has(pool[cursor].id)) {
-        cursor += 1;
-      }
-      if (cursor >= pool.length) {
-        return;
-      }
-      const problem = pool[cursor];
-      cursor += 1;
+    const newCount = plan.items.filter((item) => item.kind === "NEW").length;
+    const needed = Math.max(0, settings.newPerDay - newCount);
+    if (needed === 0) {
+      continue;
+    }
+    const picks = orderDailyNewPicks(
+      pool.filter((problem) => !assigned.has(problem.id)),
+      settings.priorityCategories,
+      needed,
+    );
+    if (!picks.length) {
+      return;
+    }
+    for (const problem of picks) {
       assigned.add(problem.id);
       const maxSort = await db.planItem.aggregate({
         where: { dailyPlanId: plan.id },
@@ -183,7 +183,6 @@ export async function topUpNewProblems(today: Date) {
           },
         }),
       ]);
-      newCount += 1;
     }
   }
 }

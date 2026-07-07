@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "node scripts/copy-monaco.mjs",
+    "predev": "npm run db:generate && npm run db:init && node scripts/copy-monaco.mjs",
     "dev": "next dev",
     "prebuild": "node scripts/copy-monaco.mjs",
     "build": "next build",

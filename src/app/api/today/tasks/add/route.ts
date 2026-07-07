@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAuthorizedRequest } from "@/lib/auth";
 import { addUtcDays, startOfUtcDay, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
+import { orderDailyNewPicks } from "@/lib/new-problem-picker";
+import { getPlanSettings } from "@/lib/settings";
+import { NEW_POOL_WHERE } from "@/lib/week-plans";
 
-// 添加一题: append the next NEW problem (Hot100 order) to today's plan. Reviews
-// are scheduled by due date — this button is only for doing extra new problems.
+// 添加一题: append the next NEW problem to today's plan — priority categories
+// first, then Hot100 order. Reviews are scheduled by due date, never here.
 export async function POST(request: NextRequest) {
   if (!isAuthorizedRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -13,6 +16,7 @@ export async function POST(request: NextRequest) {
   const db = getDb();
   const today = startOfUtcDay(new Date());
   const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7));
+  const settings = await getPlanSettings();
   const dailyPlan = await db.dailyPlan.upsert({
     where: { date: today },
     update: {},
@@ -30,17 +34,15 @@ export async function POST(request: NextRequest) {
   });
   const plannedIds = new Set(plannedThisWeek.map((item) => item.problemId));
 
-  // "New" = not yet studied in this app; a historical LeetCode AC doesn't count.
-  const newProblems = await db.problem.findMany({
-    where: {
-      isEnabled: true,
-      reviewSchedule: null,
-      sessions: { none: {} },
-    },
+  const pool = await db.problem.findMany({
+    where: NEW_POOL_WHERE,
     orderBy: { hot100Order: "asc" },
-    take: 200,
   });
-  const next = newProblems.find((problem) => !plannedIds.has(problem.id));
+  const [next] = orderDailyNewPicks(
+    pool.filter((problem) => !plannedIds.has(problem.id)),
+    settings.priorityCategories,
+    1,
+  );
 
   if (!next) {
     return NextResponse.json({ error: "没有可以再添加的新题了" }, { status: 409 });

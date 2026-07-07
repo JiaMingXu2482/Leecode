@@ -165,6 +165,8 @@ const optionalColumns = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "StudySession_planItemId_key" ON "StudySession"("planItemId")`,
   `ALTER TABLE "LeetCodeSyncState" ADD COLUMN "lastCodeSyncedAt" DATETIME`,
   `ALTER TABLE "LeetCodeSyncState" ADD COLUMN "lastCodeSyncError" TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE "AppSettings" ADD COLUMN "priorityCategories" TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE "AppSettings" ADD COLUMN "newPerDay" INTEGER NOT NULL DEFAULT 0`,
 ];
 
 async function main() {

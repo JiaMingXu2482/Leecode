@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { addUtcDays, minutesBetween, nextNDays, startOfUtcDay, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { isAuthorizedServer } from "@/lib/auth";
+import { getPlanSettings } from "@/lib/settings";
 import { ensureTodayPlan } from "@/lib/week-plans";
 
 export type DashboardView = "today" | "weekly" | "history" | "reviews" | "stats" | "sync";
@@ -33,6 +34,8 @@ export async function getDashboardData(view: DashboardView = "today") {
   if (wantToday || wantWeekly) {
     await ensureTodayPlan(today);
   }
+
+  const planSettings = await getPlanSettings();
   const [
     todayPlan,
     availabilityRows,
@@ -436,6 +439,7 @@ export async function getDashboardData(view: DashboardView = "today") {
     })),
     weekHistory,
     todayExtra,
+    planSettings,
     metrics: {
       weekNew,
       monthNew,
