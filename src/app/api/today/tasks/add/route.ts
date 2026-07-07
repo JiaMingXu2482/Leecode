@@ -30,11 +30,12 @@ export async function POST(request: NextRequest) {
   });
   const plannedIds = new Set(plannedThisWeek.map((item) => item.problemId));
 
+  // "New" = not yet studied in this app; a historical LeetCode AC doesn't count.
   const newProblems = await db.problem.findMany({
     where: {
       isEnabled: true,
       reviewSchedule: null,
-      OR: [{ progress: null }, { progress: { is: { isAccepted: false } } }],
+      sessions: { none: {} },
     },
     orderBy: { hot100Order: "asc" },
     take: 200,

@@ -80,12 +80,14 @@ export async function POST(request: NextRequest) {
     reviewsByDate.set(dueKey, list);
   }
 
-  // New problems: NEW_PER_DAY per study day, in Hot100 order.
+  // New problems: NEW_PER_DAY per study day, in Hot100 order. "New" means not
+  // yet studied IN THIS APP (no review schedule, no session) — being accepted
+  // on LeetCode historically does not exclude a problem from the redo plan.
   const newProblems = await db.problem.findMany({
     where: {
       isEnabled: true,
       reviewSchedule: null,
-      OR: [{ progress: null }, { progress: { is: { isAccepted: false } } }],
+      sessions: { none: {} },
     },
     orderBy: { hot100Order: "asc" },
     take: windowDates.length * NEW_PER_DAY + 20,

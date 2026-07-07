@@ -92,7 +92,7 @@ export default async function ProblemDetailPage({
                       <div className="text-xs font-medium text-fg-subtle">解题思路</div>
                       {session.noteMarkdown ? (
                         <div
-                          className="mt-1.5 min-h-16 whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-sm leading-6 text-fg"
+                          className="note-content mt-1.5 min-h-16 whitespace-pre-wrap rounded-md bg-muted p-3 text-sm leading-6 text-fg"
                           dangerouslySetInnerHTML={{ __html: noteToHtml(session.noteMarkdown) }}
                         />
                       ) : (
@@ -103,7 +103,7 @@ export default async function ProblemDetailPage({
                       <div className="text-xs font-medium text-fg-subtle">C++ 语法 / 知识点</div>
                       {session.noteSyntax ? (
                         <div
-                          className="mt-1.5 min-h-16 whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-sm leading-6 text-fg"
+                          className="note-content mt-1.5 min-h-16 whitespace-pre-wrap rounded-md bg-muted p-3 text-sm leading-6 text-fg"
                           dangerouslySetInnerHTML={{ __html: noteToHtml(session.noteSyntax) }}
                         />
                       ) : (

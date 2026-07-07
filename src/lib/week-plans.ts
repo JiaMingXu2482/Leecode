@@ -78,11 +78,12 @@ async function doEnsureTodayPlan(today: Date) {
   }
 
   if (newNeeded > 0) {
+    // "New" = not yet studied in this app; a historical LeetCode AC doesn't count.
     const pool = await db.problem.findMany({
       where: {
         isEnabled: true,
         reviewSchedule: null,
-        OR: [{ progress: null }, { progress: { is: { isAccepted: false } } }],
+        sessions: { none: {} },
       },
       orderBy: { hot100Order: "asc" },
       take: 100,
@@ -139,7 +140,7 @@ export async function topUpNewProblems(today: Date) {
       where: {
         isEnabled: true,
         reviewSchedule: null,
-        OR: [{ progress: null }, { progress: { is: { isAccepted: false } } }],
+        sessions: { none: {} },
       },
       orderBy: { hot100Order: "asc" },
       take: 150,

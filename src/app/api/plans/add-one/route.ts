@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     where: {
       isEnabled: true,
       reviewSchedule: null,
-      OR: [{ progress: null }, { progress: { is: { isAccepted: false } } }],
+      sessions: { none: {} },
     },
     orderBy: { hot100Order: "asc" },
     take: 120,

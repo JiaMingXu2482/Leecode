@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/copy-monaco.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-monaco.mjs",
     "build": "next build",
     "start": "next start -H 0.0.0.0",
     "lint": "eslint",
@@ -18,9 +20,11 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "@prisma/client": "^6.19.0",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.21.0",
+    "monaco-editor": "^0.55.1",
     "next": "16.2.9",
     "react": "19.2.4",
     "react-dom": "19.2.4",

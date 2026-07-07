@@ -1,23 +1,16 @@
 "use client";
 
 import {
-  AArrowDown,
-  AArrowUp,
   ArrowUpDown,
   BarChart3,
-  Baseline,
-  Bold,
   BookOpen,
   CalendarDays,
   Check,
   ChevronDown,
   Code2,
   DatabaseZap,
-  Eraser,
   ExternalLink,
   GripVertical,
-  Highlighter,
-  Italic,
   ListChecks,
   LogOut,
   Moon,
@@ -29,14 +22,15 @@ import {
   Settings2,
   Sun,
   Target,
-  Underline,
   X,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { type DragEvent, type KeyboardEvent, useEffect, useRef, useState, useTransition } from "react";
+import { type DragEvent, useEffect, useState, useTransition } from "react";
 import type { DashboardData } from "@/lib/dashboard-data";
-import { noteToHtml, RICH_PREFIX } from "@/lib/notes";
+import { noteToHtml, noteToPlainText } from "@/lib/notes";
+import { defaultReviewDays, type FeelingScore } from "@/lib/review-scheduler";
 import { TOPIC_GROUPS } from "@/lib/topics";
 
 type ActiveView = "today" | "weekly" | "history" | "reviews" | "stats" | "sync";
@@ -78,229 +72,20 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.7.0";
+const APP_VERSION = "v1.8.0";
 const APP_UPDATED = "2026-07-03";
 const DEFAULT_DAILY_COUNT = 3;
 
-const NOTE_COLORS = ["#e5e7eb", "#f59e0b", "#ef4444", "#22c55e", "#3b82f6", "#a78bfa"];
-const NOTE_TOOL_BTN =
-  "inline-flex h-7 min-w-7 items-center justify-center rounded px-1 text-fg-muted hover:bg-muted";
-
-// Toolbar colour picker: a button that reveals a small swatch popover. Uses
-// onMouseDown preventDefault so the editor keeps its text selection.
-function ColorButton({
-  icon,
-  title,
-  onPick,
-  onClear,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  onPick: (color: string) => void;
-  onClear: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={() => setOpen((value) => !value)}
-        className={NOTE_TOOL_BTN}
-        title={title}
-      >
-        {icon}
-      </button>
-      {open ? (
-        // Opens above the toolbar so the swatches never cover the note text.
-        <div className="absolute bottom-full left-0 z-20 mb-1 flex items-center gap-1 rounded-md border border-line bg-surface p-1.5 shadow-lg">
-          <button
-            type="button"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              onClear();
-              setOpen(false);
-            }}
-            className="flex h-5 w-5 items-center justify-center rounded-full border border-line text-[11px] leading-none text-fg-subtle hover:bg-muted"
-            title="无 / 清除"
-          >
-            ✕
-          </button>
-          {NOTE_COLORS.map((color) => (
-            <button
-              key={color}
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                onPick(color);
-                setOpen(false);
-              }}
-              className="h-5 w-5 rounded-full border border-line"
-              style={{ backgroundColor: color }}
-              title={color}
-            />
-          ))}
-        </div>
-      ) : null}
+// Monaco (the engine behind LeetCode's code editor) is heavy, so it loads on
+// demand — only when a feedback panel actually opens.
+const MonacoNoteEditor = dynamic(() => import("@/components/monaco-note-editor"), {
+  ssr: false,
+  loading: () => (
+    <div className="mt-2 flex h-[28rem] items-center justify-center rounded-md border border-line-strong text-sm text-fg-subtle">
+      编辑器加载中…
     </div>
-  );
-}
-
-// Lightweight rich-text note editor (contentEditable + execCommand): bold,
-// italic, underline, grow/shrink font size and font/highlight colour. No
-// dependencies. Stores HTML prefixed with RICH_PREFIX.
-function RichNoteEditor({
-  value,
-  onChange,
-  placeholder,
-  draftKey,
-}: {
-  value: string;
-  onChange: (next: string) => void;
-  placeholder?: string;
-  // localStorage key for crash/navigation-safe drafts. Every keystroke is
-  // persisted; the draft is cleared by the caller on successful submit.
-  draftKey?: string;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  // Initialise the editable DOM once; afterwards the DOM is the source of truth
-  // (re-setting innerHTML on each keystroke would reset the caret). If an
-  // unsubmitted draft exists, restore it instead of the server value.
-  useEffect(() => {
-    let initial = value;
-    if (draftKey) {
-      try {
-        const draft = localStorage.getItem(draftKey);
-        if (draft !== null && draft !== value) {
-          initial = draft;
-          onChange(draft);
-        }
-      } catch {}
-    }
-    if (ref.current) {
-      ref.current.innerHTML = noteToHtml(initial);
-    }
-    // Enter inserts <br> instead of wrapping lines in <div>s — keeps the
-    // stored HTML flat and predictable alongside plain-text pastes.
-    try {
-      document.execCommand("defaultParagraphSeparator", false, "br");
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function emit() {
-    const html = ref.current?.innerHTML ?? "";
-    const isEmpty = html === "" || html === "<br>";
-    const next = isEmpty ? "" : RICH_PREFIX + html;
-    onChange(next);
-    if (draftKey) {
-      try {
-        localStorage.setItem(draftKey, next);
-      } catch {}
-    }
-  }
-
-  function exec(command: string, arg?: string) {
-    ref.current?.focus();
-    document.execCommand(command, false, arg);
-    emit();
-  }
-
-  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Tab") {
-      event.preventDefault();
-      document.execCommand("insertText", false, "    ");
-      emit();
-    }
-  }
-
-  // Paste as plain text. Clipboard HTML from code editors (e.g. LeetCode's
-  // Monaco) carries its own styled blocks that trap the caret — pasted content
-  // keeps line breaks/indentation but adopts the editor's uniform style.
-  function onPaste(event: React.ClipboardEvent<HTMLDivElement>) {
-    event.preventDefault();
-    const text = event.clipboardData.getData("text/plain");
-    if (text) {
-      document.execCommand("insertText", false, text);
-      emit();
-    }
-  }
-
-  function adjustSize(delta: number) {
-    ref.current?.focus();
-    const current = parseInt(document.queryCommandValue("fontSize") || "3", 10);
-    const base = Number.isNaN(current) || current < 1 ? 3 : current;
-    document.execCommand("fontSize", false, String(Math.min(7, Math.max(1, base + delta))));
-    emit();
-  }
-
-  function applyColor(command: string, color: string) {
-    ref.current?.focus();
-    document.execCommand("styleWithCSS", false, "true");
-    document.execCommand(command, false, color);
-    emit();
-  }
-
-  // Remove the highlight (and stop it leaking into text typed next) by painting
-  // the selection/caret transparent.
-  function clearHighlight() {
-    applyColor("hiliteColor", "transparent");
-  }
-
-  // Reset the font colour back to the editor's default text colour.
-  function clearFontColor() {
-    const color = ref.current ? getComputedStyle(ref.current).color : "";
-    applyColor("foreColor", color || "inherit");
-  }
-
-  return (
-    <div className="mt-2 rounded-md border border-line-strong bg-surface focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/30">
-      <div className="flex flex-wrap items-center gap-0.5 border-b border-line px-2 py-1.5">
-        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => exec("bold")} className={NOTE_TOOL_BTN} title="加粗">
-          <Bold size={15} />
-        </button>
-        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => exec("italic")} className={NOTE_TOOL_BTN} title="斜体">
-          <Italic size={15} />
-        </button>
-        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => exec("underline")} className={NOTE_TOOL_BTN} title="下划线">
-          <Underline size={15} />
-        </button>
-        <span className="mx-0.5 h-4 w-px bg-line" />
-        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => adjustSize(1)} className={NOTE_TOOL_BTN} title="增大字号">
-          <AArrowUp size={17} />
-        </button>
-        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => adjustSize(-1)} className={NOTE_TOOL_BTN} title="减小字号">
-          <AArrowDown size={17} />
-        </button>
-        <span className="mx-0.5 h-4 w-px bg-line" />
-        <ColorButton icon={<Baseline size={15} />} title="字体颜色" onPick={(color) => applyColor("foreColor", color)} onClear={clearFontColor} />
-        <ColorButton icon={<Highlighter size={15} />} title="突出显示（高亮）" onPick={(color) => applyColor("hiliteColor", color)} onClear={clearHighlight} />
-        <span className="mx-0.5 h-4 w-px bg-line" />
-        <button
-          type="button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => exec("removeFormat")}
-          className={NOTE_TOOL_BTN}
-          title="清除格式（选中文字后点击，恢复为普通文本）"
-        >
-          <Eraser size={15} />
-        </button>
-      </div>
-      <div
-        ref={ref}
-        contentEditable
-        suppressContentEditableWarning
-        onInput={emit}
-        onKeyDown={onKeyDown}
-        onPaste={onPaste}
-        data-placeholder={placeholder}
-        spellCheck={false}
-        className="note-editor min-h-[28rem] w-full overflow-auto whitespace-pre-wrap p-3 font-mono text-[15px] leading-7 outline-none"
-      />
-    </div>
-  );
-}
+  ),
+});
 
 // Read-only rendering of a stored note (rich HTML or legacy plain text).
 function NoteContent({ value, className }: { value: string; className?: string }) {
@@ -1469,7 +1254,6 @@ function SyncView({
 }
 
 const feelingLabels = ["AC（快）", "AC（慢）", "无提示 AC", "提交错误", "思路不清晰", "陌生"];
-const feelingDefaultDays = [7, 5, 3, 2, 1, 1];
 
 function TaskRow({
   item,
@@ -1488,8 +1272,10 @@ function TaskRow({
   const [pastOpen, setPastOpen] = useState(false);
   const [feelingScore, setFeelingScore] = useState<number | null>(item.session?.feelingScore ?? null);
   const [reviewAfterDays, setReviewAfterDays] = useState(item.session?.reviewAfterDays ?? 7);
-  const [noteMarkdown, setNoteMarkdown] = useState(item.session?.noteMarkdown ?? "");
-  const [noteSyntax, setNoteSyntax] = useState(item.session?.noteSyntax ?? "");
+  // Notes are edited as plain text in Monaco; legacy rich-text notes flatten
+  // (text and line breaks kept) the first time they're opened.
+  const [noteMarkdown, setNoteMarkdown] = useState(() => noteToPlainText(item.session?.noteMarkdown ?? ""));
+  const [noteSyntax, setNoteSyntax] = useState(() => noteToPlainText(item.session?.noteSyntax ?? ""));
   const past = item.history ?? [];
   // Keyed by problem so unsent notes survive a re-plan (plan-item ids change).
   const draftKeyMd = `note-draft:${item.problem.id}:md`;
@@ -1497,7 +1283,15 @@ function TaskRow({
 
   function chooseScore(score: number) {
     setFeelingScore(score);
-    setReviewAfterDays(feelingDefaultDays[score]);
+    // Default interval follows mastery (average score incl. this one):
+    // avg < 2 → 14 days, avg < 3 → 7 days, else the per-score interval.
+    setReviewAfterDays(
+      defaultReviewDays(
+        score as FeelingScore,
+        item.problem.avgFeelingScore,
+        item.problem.feelingSessionCount,
+      ),
+    );
   }
 
   function submitFeedback() {
@@ -1611,22 +1405,20 @@ function TaskRow({
               <span className="inline-flex items-center gap-1 font-medium text-fg">
                 <BookOpen size={14} /> 解题思路笔记
               </span>
-              <RichNoteEditor
+              <MonacoNoteEditor
                 value={noteMarkdown}
                 onChange={setNoteMarkdown}
                 draftKey={draftKeyMd}
-                placeholder="这道题的思路、卡点、错因、下次复习要注意的点（可加粗/调字号/改颜色，Tab 缩进）"
               />
             </div>
             <div className="text-sm text-fg-muted">
               <span className="inline-flex items-center gap-1 font-medium text-fg">
                 <Code2 size={14} /> C++ 语法 / 知识点
               </span>
-              <RichNoteEditor
+              <MonacoNoteEditor
                 value={noteSyntax}
                 onChange={setNoteSyntax}
                 draftKey={draftKeySyntax}
-                placeholder="C++ 语法、STL 成员函数用法、容器/迭代器等基础知识点（Tab 缩进）"
               />
             </div>
           </div>

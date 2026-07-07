@@ -3,6 +3,7 @@ import {
   calculateFeelingScoreReview,
   calculateNextReview,
   createInitialReviewSchedules,
+  defaultReviewDays,
   ratingForFeelingScore,
   reviewDaysForFeelingScore,
 } from "./review-scheduler";
@@ -102,5 +103,30 @@ describe("createInitialReviewSchedules", () => {
     expect(schedules.map((item) => item.problemId)).toEqual(["p1", "p3", "p2"]);
     expect(schedules[0].nextReviewDate.toISOString().slice(0, 10)).toBe("2026-06-24");
     expect(schedules[2].nextReviewDate.toISOString().slice(0, 10)).toBe("2026-07-14");
+  });
+});
+
+describe("defaultReviewDays", () => {
+  it("gives two weeks when the average (incl. current score) is below 2", () => {
+    // first-ever attempt, quick AC: avg = 0
+    expect(defaultReviewDays(0, null, 0)).toBe(14);
+    // history avg 1.5 over 2 sessions, now scored 2 → avg (3+2)/3 ≈ 1.67
+    expect(defaultReviewDays(2, 1.5, 2)).toBe(14);
+  });
+
+  it("gives one week when the average lands in [2, 3)", () => {
+    // first attempt scored 2 → avg 2
+    expect(defaultReviewDays(2, null, 0)).toBe(7);
+    // history avg 3 over 3 sessions, now scored 0 → avg 9/4 = 2.25
+    expect(defaultReviewDays(0, 3, 3)).toBe(7);
+  });
+
+  it("falls back to the per-score interval when the average is 3 or higher", () => {
+    // first attempt scored 3 → avg 3 → per-score interval (2 days)
+    expect(defaultReviewDays(3, null, 0)).toBe(2);
+    // history avg 5 over 4 sessions, now scored 4 → avg 4.8 → interval for 4 (1 day)
+    expect(defaultReviewDays(4, 5, 4)).toBe(1);
+    // 陌生 on a weak problem → next day
+    expect(defaultReviewDays(5, 4, 2)).toBe(1);
   });
 });

@@ -411,6 +411,7 @@ export async function getDashboardData(view: DashboardView = "today") {
               acceptedRate: item.problem.progress?.acceptedRate ?? 0,
               reviewRiskScore: item.problem.progress?.reviewRiskScore ?? 0,
               avgFeelingScore: feelingStatMap.get(item.problem.id)?.avg ?? null,
+              feelingSessionCount: feelingStatMap.get(item.problem.id)?.count ?? 0,
             },
             };
           }),

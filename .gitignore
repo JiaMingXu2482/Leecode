@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# monaco assets are copied from node_modules by scripts/copy-monaco.mjs
+/public/monaco/
+
 # production
 /build
 

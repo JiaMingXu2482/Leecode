@@ -68,16 +68,13 @@ textarea {
   font: inherit;
 }
 
-/* Rich-text note editor + read-only note rendering. Tailwind's preflight
-   neutralises b/strong, so restore bold; <font size> / <font color> from
-   execCommand render natively. */
-.note-editor:empty::before {
-  content: attr(data-placeholder);
-  color: var(--fg-subtle);
-  pointer-events: none;
+/* Read-only note rendering (history / problem pages). Same English font as
+   LeetCode's code editor (Monaco defaults to Consolas on Windows); CJK falls
+   back to the system font, matching LeetCode. Tailwind's preflight neutralises
+   b/strong from legacy rich-text notes, so restore bold. */
+.note-content {
+  font-family: Consolas, "Courier New", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-.note-editor b,
-.note-editor strong,
 .note-content b,
 .note-content strong {
   font-weight: 700;

@@ -108,6 +108,25 @@ export function reviewDaysForFeelingScore(score: FeelingScore) {
   return FEELING_SCORE_INTERVALS[score];
 }
 
+// Default 几天后复习 prefill, based on the problem's average feeling score
+// INCLUDING the score just chosen: well-mastered problems wait longer.
+// avg < 2 → two weeks; avg < 3 → one week; otherwise the per-score interval.
+export function defaultReviewDays(
+  score: FeelingScore,
+  pastAvg: number | null,
+  pastCount: number,
+) {
+  const count = Math.max(0, pastCount);
+  const avg = ((pastAvg ?? 0) * count + score) / (count + 1);
+  if (avg < 2) {
+    return 14;
+  }
+  if (avg < 3) {
+    return 7;
+  }
+  return FEELING_SCORE_INTERVALS[score];
+}
+
 export function ratingForFeelingScore(score: FeelingScore): RecallRating {
   if (score >= 5) {
     return "forgot";
