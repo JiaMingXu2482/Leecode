@@ -1682,18 +1682,15 @@ function TaskRow({
   );
 }
 
-// One fixed ramp for both themes (no dark: variants, by request): the darker a
-// cell looks, the more problems that day. 0 problems is therefore the lightest
-// shade, so in dark theme the grid reads as a light block on the dark card —
-// the unavoidable consequence of a theme-independent "darker = more". Shades
-// are monotonically darker with ≥1.43:1 measured contrast between neighbours.
+// Four clearly-stepped levels per theme: light = deeper amber means more,
+// dark = brighter amber means more (GitHub-style, alpha steps were too subtle).
 function heatLevelClass(count: number, future: boolean) {
-  if (future) return "bg-transparent"; // not a day yet — no cell drawn
-  if (count <= 0) return "bg-stone-300";
-  if (count <= 1) return "bg-amber-500";
-  if (count <= 3) return "bg-amber-600";
-  if (count <= 5) return "bg-amber-700";
-  return "bg-amber-900";
+  if (future) return "bg-transparent";
+  if (count <= 0) return "bg-muted";
+  if (count <= 1) return "bg-amber-200 dark:bg-amber-900";
+  if (count <= 3) return "bg-amber-400 dark:bg-amber-600";
+  if (count <= 5) return "bg-amber-600 dark:bg-amber-400";
+  return "bg-amber-800 dark:bg-amber-200";
 }
 
 // Today overview: key metrics plus a GitHub-style contribution heatmap of daily
