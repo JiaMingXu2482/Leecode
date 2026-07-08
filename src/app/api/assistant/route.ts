@@ -3,6 +3,7 @@ import { isAuthorizedRequest } from "@/lib/auth";
 import { startOfUtcDay, toDateKey } from "@/lib/dates";
 import { addProblemToDate, regenerateWeek } from "@/lib/plan-actions";
 import { getPlanSettings, sanitizeCategories, savePlanSettings } from "@/lib/settings";
+import { stripMarkdown } from "@/lib/strip-markdown";
 import { TOPIC_GROUPS } from "@/lib/topics";
 import { loadWeekPlans } from "@/lib/week-plans";
 
@@ -145,11 +146,28 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const body = (await request.json().catch(() => ({}))) as { message?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    message?: string;
+    history?: { role?: string; content?: string }[];
+  };
   const message = typeof body.message === "string" ? body.message.trim() : "";
   if (!message || message.length > 500) {
     return NextResponse.json({ error: "请输入一句 500 字以内的指令" }, { status: 400 });
   }
+  // Recent chat tail from the client, for conversational context.
+  const history: ChatMessage[] = (Array.isArray(body.history) ? body.history : [])
+    .filter(
+      (entry): entry is { role: "user" | "assistant"; content: string } =>
+        (entry?.role === "user" || entry?.role === "assistant") &&
+        typeof entry?.content === "string" &&
+        entry.content.length > 0,
+    )
+    .slice(-8)
+    .map((entry) =>
+      entry.role === "user"
+        ? { role: "user", content: entry.content.slice(0, 2000) }
+        : { role: "assistant", content: entry.content.slice(0, 2000) },
+    );
 
   const today = startOfUtcDay(new Date());
   const settings = await getPlanSettings();
@@ -162,9 +180,10 @@ export async function POST(request: NextRequest) {
         `分类列表: ${TOPIC_GROUPS.map((g) => g.name).join("、")}。`,
         `当前设置: 优先类别=${settings.priorityCategories.join("、") || "无"}，每天新题=${settings.newPerDay}。复习题按艾宾浩斯到期日自动排，不需要你管。`,
         "规则: 所有改动必须通过工具完成；修改设置后调用 regenerate_week 让本周立即生效（除非用户明确说只改设置）；不确定当前计划时先 get_current_plan。",
-        "最后用简洁的中文总结你做了什么（两三句以内），不要输出 markdown。",
+        "最后用简洁的中文总结你做了什么（两三句以内），用纯文本，不要用 markdown 星号或标题。",
       ].join("\n"),
     },
+    ...history,
     { role: "user", content: message },
   ];
 
@@ -222,7 +241,7 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({
-    reply: reply || "已处理（本次对话轮数达到上限）。",
+    reply: stripMarkdown(reply || "已处理（本次对话轮数达到上限）。").trim(),
     weekPlans: changed ? await loadWeekPlans(today) : undefined,
   });
 }

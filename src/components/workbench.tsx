@@ -28,7 +28,7 @@ import {
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { type DragEvent, useEffect, useState, useTransition } from "react";
+import { type DragEvent, useEffect, useRef, useState, useTransition } from "react";
 import type { DashboardData } from "@/lib/dashboard-data";
 import { noteToHtml, noteToPlainText } from "@/lib/notes";
 import { defaultReviewDays, type FeelingScore } from "@/lib/review-scheduler";
@@ -73,8 +73,8 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.9.0";
-const APP_UPDATED = "2026-07-06";
+const APP_VERSION = "v1.9.1";
+const APP_UPDATED = "2026-07-08";
 
 // Monaco (the engine behind LeetCode's code editor) is heavy, so it loads on
 // demand — only when a feedback panel actually opens.
@@ -239,15 +239,19 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
     return payload.weekPlans;
   }
 
-  // Send one instruction to the plan assistant (DeepSeek-backed). Returns the
-  // assistant's reply and, when it changed anything, the fresh week plans.
-  async function askAssistant(message: string) {
+  // Send one instruction to the plan assistant (DeepSeek-backed), with the
+  // recent chat tail for conversational context. Returns the assistant's reply
+  // and, when it changed anything, the fresh week plans.
+  async function askAssistant(
+    message: string,
+    history: { role: "user" | "assistant"; content: string }[],
+  ) {
     setBusy("/api/assistant");
     setMessage("");
     const response = await fetch("/api/assistant", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, history }),
     });
     setBusy("");
     const payload = (await response.json().catch(() => ({}))) as {
@@ -644,14 +648,35 @@ function WeeklyView({
   onGenerate: () => Promise<WeekPlans | null>;
   onMove: (id: string, date: string) => Promise<WeekPlans | null>;
   onAddProblem: (date: string, problemId: string) => Promise<WeekPlans | null>;
-  onAsk: (message: string) => Promise<{ reply: string; weekPlans: WeekPlans | null }>;
+  onAsk: (
+    message: string,
+    history: { role: "user" | "assistant"; content: string }[],
+  ) => Promise<{ reply: string; weekPlans: WeekPlans | null }>;
   busy: boolean;
 }) {
   const [plans, setPlans] = useState(initialPlans);
   const [query, setQuery] = useState("");
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const [assistantInput, setAssistantInput] = useState("");
-  const [assistantReply, setAssistantReply] = useState("");
+  const [openPanel, setOpenPanel] = useState<null | "assistant" | "search" | "regen">(null);
+  // Assistant chat history persists in localStorage so past exchanges stay
+  // visible across visits; the recent tail is also sent for conversational
+  // context ("再加一道" keeps meaning).
+  const [chat, setChat] = useState<{ role: "user" | "assistant"; content: string }[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem("planner-assistant-chat") ?? "[]");
+      return Array.isArray(parsed) ? parsed.slice(-100) : [];
+    } catch {
+      return [];
+    }
+  });
+  const chatRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (chatRef.current) {
+      chatRef.current.scrollTop = chatRef.current.scrollHeight;
+    }
+  }, [chat, openPanel, busy]);
   const plansByDate = new Map(plans.map((plan) => [plan.date, plan.items]));
   const todayKey = days[0]?.date ?? "";
   const pastDays = history.filter((day) => day.date < todayKey);
@@ -700,106 +725,203 @@ function WeeklyView({
     if (result) setPlans(result);
   }
 
+  function pushChat(entry: { role: "user" | "assistant"; content: string }) {
+    setChat((current) => {
+      const next = [...current, entry].slice(-100);
+      try {
+        localStorage.setItem("planner-assistant-chat", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }
+
   async function sendToAssistant() {
     const message = assistantInput.trim();
     if (!message || busy) {
       return;
     }
-    setAssistantReply("…");
-    const { reply, weekPlans } = await onAsk(message);
-    setAssistantReply(reply);
+    const historyForApi = chat.slice(-8);
+    pushChat({ role: "user", content: message });
+    setAssistantInput("");
+    const { reply, weekPlans } = await onAsk(message, historyForApi);
+    pushChat({ role: "assistant", content: reply });
     if (weekPlans) {
       setPlans(weekPlans);
-      setAssistantInput("");
     }
   }
 
   return (
     <section className="space-y-6">
-      <div className="flex items-center justify-end gap-2">
-        <button
-          onClick={regenerate}
-          disabled={busy}
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-line-strong px-2.5 text-xs font-medium text-fg-muted hover:bg-muted disabled:opacity-40"
-          title="重新排本周（到期复习 + 每日新题配额，优先类别先排；会打乱未完成的题）"
-        >
-          <RefreshCw size={13} />
-          重排本周
-        </button>
-      </div>
+      {/* 悬浮工具：计划助手 / 搜索题目 / 重排本周。圆形按钮点击原地展开面板。 */}
+      <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3">
+        {openPanel === "assistant" ? (
+          <div className="flex max-h-[70vh] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-2xl">
+            <div className="flex items-center gap-2 border-b border-line px-3 py-2 text-sm font-semibold">
+              <Sparkles size={15} className="shrink-0 text-amber-500" />
+              计划助手
+              <button
+                onClick={() => setOpenPanel(null)}
+                className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle hover:bg-muted"
+                title="收起"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div ref={chatRef} className="min-h-[10rem] flex-1 space-y-2 overflow-y-auto px-3 py-2">
+              {chat.length ? (
+                chat.map((entry, index) => (
+                  <div
+                    key={index}
+                    className={`whitespace-pre-wrap rounded-lg px-2.5 py-1.5 text-sm leading-6 ${
+                      entry.role === "user"
+                        ? "ml-8 bg-blue-50 text-blue-900 dark:bg-blue-500/15 dark:text-blue-100"
+                        : "mr-8 bg-muted text-fg"
+                    }`}
+                  >
+                    {entry.content}
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs leading-5 text-fg-subtle">
+                  用一句话调整计划，比如「优先刷回溯和DP」「每天改成5道新题」「把接雨水加到周六」「我现在的计划是怎么排的」。
+                </p>
+              )}
+              {busy ? (
+                <div className="mr-8 rounded-lg bg-muted px-2.5 py-1.5 text-sm text-fg-subtle">思考中…</div>
+              ) : null}
+            </div>
+            <div className="flex gap-2 border-t border-line p-2">
+              <input
+                value={assistantInput}
+                onChange={(event) => setAssistantInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    void sendToAssistant();
+                  }
+                }}
+                placeholder="告诉助手你想怎么排…"
+                className="h-9 min-w-0 flex-1 rounded-md border border-line bg-canvas px-3 text-sm outline-none focus:border-line-strong"
+              />
+              <button
+                onClick={() => void sendToAssistant()}
+                disabled={busy || !assistantInput.trim()}
+                className="inline-flex h-9 shrink-0 items-center rounded-md bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-btn-strong"
+              >
+                发送
+              </button>
+            </div>
+          </div>
+        ) : null}
 
-      <div className="rounded-lg border border-line bg-surface p-3">
-        <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
-          <Sparkles size={15} className="text-amber-500" />
-          计划助手
-          <span className="text-xs font-normal text-fg-subtle">
-            用一句话调整计划，比如「优先刷回溯和DP」「每天改成5道新题」「把接雨水加到周六」
-          </span>
-        </div>
-        <div className="flex gap-2">
-          <input
-            value={assistantInput}
-            onChange={(event) => setAssistantInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                void sendToAssistant();
-              }
-            }}
-            placeholder="告诉助手你想怎么排…"
-            className="h-9 min-w-0 flex-1 rounded-md border border-line bg-canvas px-3 text-sm outline-none focus:border-line-strong"
-          />
+        {openPanel === "search" ? (
+          <div className="flex max-h-[60vh] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-2xl">
+            <div className="flex items-center gap-2 border-b border-line px-3 py-2 text-sm font-semibold">
+              <Search size={15} className="shrink-0 text-fg-subtle" />
+              搜索题目
+              <button
+                onClick={() => setOpenPanel(null)}
+                className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle hover:bg-muted"
+                title="收起"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="space-y-2 overflow-y-auto p-3">
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="题号或名称，把结果拖到某一天"
+                autoFocus
+                className="h-9 w-full rounded-md border border-line bg-canvas px-3 text-sm outline-none focus:border-line-strong"
+              />
+              {q ? (
+                results.length ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {results.map((problem) => (
+                      <div
+                        key={problem.id}
+                        draggable
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData(
+                            "application/json",
+                            JSON.stringify({ kind: "add", problemId: problem.id }),
+                          );
+                          event.dataTransfer.effectAllowed = "copy";
+                        }}
+                        className="flex cursor-grab items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs active:cursor-grabbing"
+                        title="拖到某一天加入计划"
+                      >
+                        <GripVertical size={12} className="shrink-0 text-fg-subtle" />
+                        <span className="font-mono text-[11px] text-fg-subtle">#{problem.frontendId}</span>
+                        <span className="max-w-[11rem] truncate">{problem.titleCn}</span>
+                        <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${difficultyClass[problem.difficulty]}`}>
+                          {problem.difficulty === "EASY" ? "易" : problem.difficulty === "MEDIUM" ? "中" : "难"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-fg-subtle">没有匹配的题目。</p>
+                )
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {openPanel === "regen" ? (
+          <div className="w-[300px] rounded-xl border border-line bg-surface p-3 shadow-2xl">
+            <div className="text-sm font-semibold">重排本周</div>
+            <p className="mt-1 text-xs leading-5 text-fg-subtle">
+              按当前设置重排今天到周日：到期复习 + 每日新题配额（优先类别先排）。已完成的保留，未完成的会重新分配。
+            </p>
+            <button
+              onClick={async () => {
+                await regenerate();
+                setOpenPanel(null);
+              }}
+              disabled={busy}
+              className="mt-2 inline-flex h-9 w-full items-center justify-center rounded-md bg-blue-600 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-btn-strong"
+            >
+              {busy ? "重排中…" : "确认重排"}
+            </button>
+          </div>
+        ) : null}
+
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => void sendToAssistant()}
-            disabled={busy || !assistantInput.trim()}
-            className="inline-flex h-9 shrink-0 items-center rounded-md bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-btn-strong"
+            onClick={() => setOpenPanel((current) => (current === "regen" ? null : "regen"))}
+            className={`flex h-12 w-12 items-center justify-center rounded-full border shadow-lg transition ${
+              openPanel === "regen"
+                ? "border-blue-500 bg-blue-600 text-white"
+                : "border-line bg-surface text-fg-muted hover:bg-muted"
+            }`}
+            title="重排本周"
           >
-            {busy ? "处理中…" : "发送"}
+            <RefreshCw size={18} />
+          </button>
+          <button
+            onClick={() => setOpenPanel((current) => (current === "search" ? null : "search"))}
+            className={`flex h-12 w-12 items-center justify-center rounded-full border shadow-lg transition ${
+              openPanel === "search"
+                ? "border-blue-500 bg-blue-600 text-white"
+                : "border-line bg-surface text-fg-muted hover:bg-muted"
+            }`}
+            title="搜索题目并拖入计划"
+          >
+            <Search size={18} />
+          </button>
+          <button
+            onClick={() => setOpenPanel((current) => (current === "assistant" ? null : "assistant"))}
+            className={`flex h-12 w-12 items-center justify-center rounded-full border shadow-lg transition ${
+              openPanel === "assistant"
+                ? "border-blue-500 bg-blue-600 text-white"
+                : "border-amber-300 bg-surface text-amber-500 hover:bg-muted dark:border-amber-500/40"
+            }`}
+            title="计划助手"
+          >
+            <Sparkles size={18} />
           </button>
         </div>
-        {assistantReply ? (
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-fg-muted">{assistantReply}</p>
-        ) : null}
-      </div>
-      <div>
-        <div className="relative">
-          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索题目（题号或名称），把结果拖到某一天加入计划"
-            className="h-9 w-full rounded-md border border-line bg-surface pl-9 pr-3 text-sm outline-none focus:border-line-strong"
-          />
-        </div>
-        {q ? (
-          results.length ? (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {results.map((problem) => (
-                <div
-                  key={problem.id}
-                  draggable
-                  onDragStart={(event) => {
-                    event.dataTransfer.setData(
-                      "application/json",
-                      JSON.stringify({ kind: "add", problemId: problem.id }),
-                    );
-                    event.dataTransfer.effectAllowed = "copy";
-                  }}
-                  className="flex cursor-grab items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs active:cursor-grabbing"
-                  title="拖到某一天加入计划"
-                >
-                  <GripVertical size={12} className="shrink-0 text-fg-subtle" />
-                  <span className="font-mono text-[11px] text-fg-subtle">#{problem.frontendId}</span>
-                  <span className="max-w-[11rem] truncate">{problem.titleCn}</span>
-                  <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${difficultyClass[problem.difficulty]}`}>
-                    {problem.difficulty === "EASY" ? "易" : problem.difficulty === "MEDIUM" ? "中" : "难"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-2 text-xs text-fg-subtle">没有匹配的题目。</p>
-          )
-        ) : null}
       </div>
 
       <div>
@@ -1560,13 +1682,15 @@ function TaskRow({
   );
 }
 
+// Four clearly-stepped levels per theme: light = deeper amber means more,
+// dark = brighter amber means more (GitHub-style, alpha steps were too subtle).
 function heatLevelClass(count: number, future: boolean) {
   if (future) return "bg-transparent";
   if (count <= 0) return "bg-muted";
-  if (count <= 1) return "bg-amber-500/30";
-  if (count <= 3) return "bg-amber-500/55";
-  if (count <= 5) return "bg-amber-500/80";
-  return "bg-amber-500";
+  if (count <= 1) return "bg-amber-200 dark:bg-amber-900";
+  if (count <= 3) return "bg-amber-400 dark:bg-amber-600";
+  if (count <= 5) return "bg-amber-600 dark:bg-amber-400";
+  return "bg-amber-800 dark:bg-amber-200";
 }
 
 // Today overview: key metrics plus a GitHub-style contribution heatmap of daily
