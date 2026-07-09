@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthorizedRequest } from "@/lib/auth";
 import { startOfUtcDay, toDateKey } from "@/lib/dates";
-import { addProblemToDate, regenerateWeek } from "@/lib/plan-actions";
+import {
+  addProblemToDate,
+  getWeakProblems,
+  moveProblemToDate,
+  regenerateWeek,
+  removeProblemFromPlan,
+  setCategoryEnabled,
+  setProblemReviewDays,
+} from "@/lib/plan-actions";
 import { getPlanSettings, sanitizeCategories, savePlanSettings } from "@/lib/settings";
 import { stripMarkdown } from "@/lib/strip-markdown";
 import { TOPIC_GROUPS } from "@/lib/topics";
@@ -78,6 +86,73 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "move_problem_to_date",
+      description: "把某道题移动到某一天（会先从今后其它天移除它，再加到目标日）。",
+      parameters: {
+        type: "object",
+        properties: {
+          frontendId: { type: "number", description: "LeetCode 题号" },
+          date: { type: "string", description: "目标日期 YYYY-MM-DD" },
+        },
+        required: ["frontendId", "date"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "remove_problem",
+      description: "把某道题从今天及以后的计划里移除（不影响已完成的记录）。",
+      parameters: {
+        type: "object",
+        properties: { frontendId: { type: "number", description: "LeetCode 题号" } },
+        required: ["frontendId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_problem_review_days",
+      description: "设置某道题在几天后复习（1-90 天，从今天算）。用于调整某题下次复习的时间。",
+      parameters: {
+        type: "object",
+        properties: {
+          frontendId: { type: "number", description: "LeetCode 题号" },
+          days: { type: "number", description: "几天后复习" },
+        },
+        required: ["frontendId", "days"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_category_enabled",
+      description:
+        "把某个分类整类设为不刷(enabled=false，会从计划移除)或恢复刷题(enabled=true)。",
+      parameters: {
+        type: "object",
+        properties: {
+          category: { type: "string", description: `分类名，如 ${TOPIC_GROUPS.map((g) => g.name).join("、")}` },
+          enabled: { type: "boolean", description: "true=恢复刷；false=不刷" },
+        },
+        required: ["category", "enabled"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_weak_problems",
+      description:
+        "读取用户做得不熟的题（平均反馈分越高越不熟：2=有点生，3+=不熟，5=完全没思路），按最不熟在前返回，并给出各分类的薄弱题数。用于推荐本周该重点复习/多刷哪些题或哪一类。",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_current_plan",
       description: "读取本周计划（每天排了哪些题）和当前设置，用于回答用户问题或决定怎么调整。",
       parameters: { type: "object", properties: {} },
@@ -110,6 +185,33 @@ async function runTool(name: string, args: Record<string, unknown>) {
     case "add_problem_to_date": {
       const result = await addProblemToDate(Number(args.frontendId), String(args.date));
       return result.message;
+    }
+    case "move_problem_to_date": {
+      const result = await moveProblemToDate(Number(args.frontendId), String(args.date));
+      return result.message;
+    }
+    case "remove_problem": {
+      const result = await removeProblemFromPlan(Number(args.frontendId));
+      return result.message;
+    }
+    case "set_problem_review_days": {
+      const result = await setProblemReviewDays(Number(args.frontendId), Number(args.days));
+      return result.message;
+    }
+    case "set_category_enabled": {
+      const result = await setCategoryEnabled(String(args.category), Boolean(args.enabled));
+      return result.message;
+    }
+    case "get_weak_problems": {
+      const { problems, weakByCategory } = await getWeakProblems();
+      if (!problems.length) {
+        return "还没有足够的做题反馈来判断薄弱点（做题时打个分就会积累）。";
+      }
+      const list = problems
+        .map((p) => `#${p.frontendId} ${p.titleCn}（${p.category}，均分${p.avg.toFixed(1)}，做过${p.count}次）`)
+        .join("\n");
+      const cats = weakByCategory.map(([name, n]) => `${name}${n}题`).join("、");
+      return `按分类的薄弱题数: ${cats}\n最不熟的题（均分越高越不熟）:\n${list}`;
     }
     case "get_current_plan": {
       const [settings, weekPlans] = await Promise.all([
@@ -179,8 +281,9 @@ export async function POST(request: NextRequest) {
         `今天是 ${toDateKey(today)}（UTC 日期，周${"日一二三四五六"[today.getUTCDay()]}）。计划以自然周（周一到周日）为单位。`,
         `分类列表: ${TOPIC_GROUPS.map((g) => g.name).join("、")}。`,
         `当前设置: 优先类别=${settings.priorityCategories.join("、") || "无"}，每天新题=${settings.newPerDay}。复习题按艾宾浩斯到期日自动排，不需要你管。`,
-        "规则: 所有改动必须通过工具完成；修改设置后调用 regenerate_week 让本周立即生效（除非用户明确说只改设置）；不确定当前计划时先 get_current_plan。",
-        "最后用简洁的中文总结你做了什么（两三句以内），用纯文本，不要用 markdown 星号或标题。",
+        "能力: 你可以增删移动某天的题、设某题几天后复习、把某类设为不刷或恢复、设优先类别/每日新题数、重排本周；也能读当前计划和用户的薄弱题给出建议。",
+        "规则: 所有改动必须通过工具完成；修改设置(优先类别/每日新题数)后调用 regenerate_week 让本周立即生效（除非用户明确说只改设置）；不确定当前计划时先 get_current_plan；用户问“该重点刷什么/哪里薄弱”时先 get_weak_problems 再给建议。",
+        "最后用简洁的中文总结你做了什么或你的建议（三四句以内），用纯文本，不要用 markdown 星号或标题。",
       ].join("\n"),
     },
     ...history,
@@ -189,7 +292,7 @@ export async function POST(request: NextRequest) {
 
   let changed = false;
   let reply = "";
-  for (let round = 0; round < 5; round += 1) {
+  for (let round = 0; round < 8; round += 1) {
     const response = await fetch(DEEPSEEK_URL, {
       method: "POST",
       headers: {
@@ -233,7 +336,7 @@ export async function POST(request: NextRequest) {
         args = JSON.parse(call.function.arguments || "{}");
       } catch {}
       const result = await runTool(call.function.name, args);
-      if (call.function.name !== "get_current_plan") {
+      if (call.function.name !== "get_current_plan" && call.function.name !== "get_weak_problems") {
         changed = true;
       }
       messages.push({ role: "tool", tool_call_id: call.id, content: result });

@@ -73,7 +73,7 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.9.1";
+const APP_VERSION = "v1.10.0";
 const APP_UPDATED = "2026-07-08";
 
 // Monaco (the engine behind LeetCode's code editor) is heavy, so it loads on
@@ -218,25 +218,6 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
 
     lastMutationAt = Date.now();
     return true;
-  }
-
-  // Full re-plan of the current week (due reviews + per-day new quota, priority
-  // categories first). Returns fresh week plans so the view updates in place.
-  async function generateWeekly() {
-    setBusy("/api/plans/generate");
-    setMessage("");
-    const response = await fetch("/api/plans/generate", { method: "POST" });
-    setBusy("");
-
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => ({}))) as { error?: string };
-      setMessage(payload.error ?? "排题失败");
-      return null;
-    }
-
-    lastMutationAt = Date.now();
-    const payload = (await response.json()) as { weekPlans: DashboardData["weekPlans"] };
-    return payload.weekPlans;
   }
 
   // Send one instruction to the plan assistant (DeepSeek-backed), with the
@@ -482,7 +463,6 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               history={data.weekHistory}
               problems={data.problems}
               today={data.today}
-              onGenerate={generateWeekly}
               onMove={moveItem}
               onAddProblem={addProblemToDay}
               onAsk={askAssistant}
@@ -634,7 +614,6 @@ function WeeklyView({
   history,
   problems,
   today,
-  onGenerate,
   onMove,
   onAddProblem,
   onAsk,
@@ -645,7 +624,6 @@ function WeeklyView({
   history: DashboardData["weekHistory"];
   problems: DashboardData["problems"];
   today: string;
-  onGenerate: () => Promise<WeekPlans | null>;
   onMove: (id: string, date: string) => Promise<WeekPlans | null>;
   onAddProblem: (date: string, problemId: string) => Promise<WeekPlans | null>;
   onAsk: (
@@ -658,7 +636,7 @@ function WeeklyView({
   const [query, setQuery] = useState("");
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const [assistantInput, setAssistantInput] = useState("");
-  const [openPanel, setOpenPanel] = useState<null | "assistant" | "search" | "regen">(null);
+  const [openPanel, setOpenPanel] = useState<null | "assistant" | "search">(null);
   // Assistant chat history persists in localStorage so past exchanges stay
   // visible across visits; the recent tail is also sent for conversational
   // context ("再加一道" keeps meaning).
@@ -677,6 +655,45 @@ function WeeklyView({
       chatRef.current.scrollTop = chatRef.current.scrollHeight;
     }
   }, [chat, openPanel, busy]);
+
+  // Draggable assistant window: null = default anchored spot (above the FABs);
+  // once dragged by its header it floats at {x,y}, persisted in localStorage.
+  const assistantRef = useRef<HTMLDivElement>(null);
+  const [assistantPos, setAssistantPos] = useState<{ x: number; y: number } | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem("planner-assistant-pos");
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed.x === "number" && typeof parsed.y === "number" ? parsed : null;
+    } catch {
+      return null;
+    }
+  });
+  function startAssistantDrag(event: React.PointerEvent) {
+    const panel = assistantRef.current;
+    if (!panel || event.button !== 0) return;
+    const rect = panel.getBoundingClientRect();
+    const dx = event.clientX - rect.left;
+    const dy = event.clientY - rect.top;
+    function move(moveEvent: PointerEvent) {
+      const w = assistantRef.current?.offsetWidth ?? 380;
+      const h = assistantRef.current?.offsetHeight ?? 300;
+      const next = {
+        x: Math.max(4, Math.min(window.innerWidth - w - 4, moveEvent.clientX - dx)),
+        y: Math.max(4, Math.min(window.innerHeight - h - 4, moveEvent.clientY - dy)),
+      };
+      setAssistantPos(next);
+      try {
+        localStorage.setItem("planner-assistant-pos", JSON.stringify(next));
+      } catch {}
+    }
+    function up() {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    }
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
   const plansByDate = new Map(plans.map((plan) => [plan.date, plan.items]));
   const todayKey = days[0]?.date ?? "";
   const pastDays = history.filter((day) => day.date < todayKey);
@@ -720,11 +737,6 @@ function WeeklyView({
     }
   }
 
-  async function regenerate() {
-    const result = await onGenerate();
-    if (result) setPlans(result);
-  }
-
   function pushChat(entry: { role: "user" | "assistant"; content: string }) {
     setChat((current) => {
       const next = [...current, entry].slice(-100);
@@ -752,22 +764,47 @@ function WeeklyView({
 
   return (
     <section className="space-y-6">
-      {/* 悬浮工具：计划助手 / 搜索题目 / 重排本周。圆形按钮点击原地展开面板。 */}
-      <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3">
-        {openPanel === "assistant" ? (
-          <div className="flex max-h-[70vh] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-2xl">
-            <div className="flex items-center gap-2 border-b border-line px-3 py-2 text-sm font-semibold">
+      {/* 计划助手：可拖动的悬浮聊天窗（默认在 FAB 上方，拖动标题栏后自由放置）。 */}
+      {openPanel === "assistant" ? (
+        <div
+          ref={assistantRef}
+          style={
+            assistantPos
+              ? { left: assistantPos.x, top: assistantPos.y, right: "auto", bottom: "auto" }
+              : undefined
+          }
+          className="fixed bottom-24 right-6 z-50 flex max-h-[70vh] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-2xl"
+        >
+          <div className="flex items-center gap-2 border-b border-line pr-2 text-sm font-semibold">
+            <div
+              onPointerDown={startAssistantDrag}
+              className="flex flex-1 cursor-move touch-none select-none items-center gap-2 px-3 py-2"
+              title="拖动可移动窗口"
+            >
               <Sparkles size={15} className="shrink-0 text-amber-500" />
               计划助手
-              <button
-                onClick={() => setOpenPanel(null)}
-                className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle hover:bg-muted"
-                title="收起"
-              >
-                <X size={14} />
-              </button>
             </div>
-            <div ref={chatRef} className="min-h-[10rem] flex-1 space-y-2 overflow-y-auto px-3 py-2">
+            <button
+              onClick={() => {
+                setChat([]);
+                try {
+                  localStorage.removeItem("planner-assistant-chat");
+                } catch {}
+              }}
+              className="inline-flex h-7 items-center rounded-md px-1.5 text-xs text-fg-subtle hover:bg-muted"
+              title="清空聊天记录"
+            >
+              清空
+            </button>
+            <button
+              onClick={() => setOpenPanel(null)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-fg-subtle hover:bg-muted"
+              title="收起"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <div ref={chatRef} className="min-h-[10rem] flex-1 space-y-2 overflow-y-auto px-3 py-2">
               {chat.length ? (
                 chat.map((entry, index) => (
                   <div
@@ -783,7 +820,11 @@ function WeeklyView({
                 ))
               ) : (
                 <p className="text-xs leading-5 text-fg-subtle">
-                  用一句话调整计划，比如「优先刷回溯和DP」「每天改成5道新题」「把接雨水加到周六」「我现在的计划是怎么排的」。
+                  用一句话让助手帮你排题，比如：
+                  <br />· 「优先刷回溯和DP」「每天改成5道新题」
+                  <br />· 「把接雨水加到周六」「把#146移到周三」「把#3从计划里去掉」
+                  <br />· 「链表这一类先不刷」「#42 三天后再复习」
+                  <br />· 「我哪些题最不熟，本周该重点刷什么？」
                 </p>
               )}
               {busy ? (
@@ -811,8 +852,10 @@ function WeeklyView({
               </button>
             </div>
           </div>
-        ) : null}
+      ) : null}
 
+      {/* 悬浮工具簇：搜索题目 / 计划助手。圆形按钮点击原地展开面板。 */}
+      <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3">
         {openPanel === "search" ? (
           <div className="flex max-h-[60vh] w-[380px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-2xl">
             <div className="flex items-center gap-2 border-b border-line px-3 py-2 text-sm font-semibold">
@@ -868,37 +911,7 @@ function WeeklyView({
           </div>
         ) : null}
 
-        {openPanel === "regen" ? (
-          <div className="w-[300px] rounded-xl border border-line bg-surface p-3 shadow-2xl">
-            <div className="text-sm font-semibold">重排本周</div>
-            <p className="mt-1 text-xs leading-5 text-fg-subtle">
-              按当前设置重排今天到周日：到期复习 + 每日新题配额（优先类别先排）。已完成的保留，未完成的会重新分配。
-            </p>
-            <button
-              onClick={async () => {
-                await regenerate();
-                setOpenPanel(null);
-              }}
-              disabled={busy}
-              className="mt-2 inline-flex h-9 w-full items-center justify-center rounded-md bg-blue-600 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-btn-strong"
-            >
-              {busy ? "重排中…" : "确认重排"}
-            </button>
-          </div>
-        ) : null}
-
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setOpenPanel((current) => (current === "regen" ? null : "regen"))}
-            className={`flex h-12 w-12 items-center justify-center rounded-full border shadow-lg transition ${
-              openPanel === "regen"
-                ? "border-blue-500 bg-blue-600 text-white"
-                : "border-line bg-surface text-fg-muted hover:bg-muted"
-            }`}
-            title="重排本周"
-          >
-            <RefreshCw size={18} />
-          </button>
           <button
             onClick={() => setOpenPanel((current) => (current === "search" ? null : "search"))}
             className={`flex h-12 w-12 items-center justify-center rounded-full border shadow-lg transition ${

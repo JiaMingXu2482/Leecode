@@ -4,7 +4,8 @@ import { getDb } from "@/lib/db";
 import { orderDailyNewPicks } from "@/lib/new-problem-picker";
 import { calculateReviewRiskScore } from "@/lib/risk";
 import { getPlanSettings } from "@/lib/settings";
-import { loadWeekPlans, NEW_POOL_WHERE } from "@/lib/week-plans";
+import { topicForFrontendId, TOPIC_GROUPS } from "@/lib/topics";
+import { loadWeekPlans, NEW_POOL_WHERE, topUpNewProblems } from "@/lib/week-plans";
 
 type CandidateKind = "review" | "retest" | "new";
 type Candidate = { problemId: string; kind: CandidateKind; estimatedMinutes: number };
@@ -224,4 +225,133 @@ export async function addProblemToDate(frontendId: number, dateKey: string) {
     }),
   ]);
   return { ok: true, message: `已把 #${frontendId} ${problem.titleCn} 加到 ${dateKey}` };
+}
+
+// Remove a problem from today's and upcoming plans (completed items are kept).
+export async function removeProblemFromPlan(frontendId: number) {
+  const db = getDb();
+  const problem = await db.problem.findUnique({ where: { frontendId } });
+  if (!problem) {
+    return { ok: false, message: `找不到题号 #${frontendId}` };
+  }
+  const today = startOfUtcDay(new Date());
+  const removed = await db.planItem.deleteMany({
+    where: { problemId: problem.id, isCompleted: false, dailyPlan: { date: { gte: today } } },
+  });
+  return removed.count
+    ? { ok: true, message: `已把 #${frontendId} ${problem.titleCn} 从今后的计划里移除` }
+    : { ok: true, message: `#${frontendId} ${problem.titleCn} 本来就不在今后的计划里` };
+}
+
+// Move a problem to a specific day: drop its unfinished upcoming occurrences,
+// then add it to the target day.
+export async function moveProblemToDate(frontendId: number, dateKey: string) {
+  const db = getDb();
+  const problem = await db.problem.findUnique({ where: { frontendId } });
+  if (!problem) {
+    return { ok: false, message: `找不到题号 #${frontendId}` };
+  }
+  const date = fromDateKey(dateKey);
+  if (Number.isNaN(date.getTime())) {
+    return { ok: false, message: `日期无效: ${dateKey}` };
+  }
+  const today = startOfUtcDay(new Date());
+  await db.planItem.deleteMany({
+    where: { problemId: problem.id, isCompleted: false, dailyPlan: { date: { gte: today } } },
+  });
+  const result = await addProblemToDate(frontendId, dateKey);
+  return result.ok
+    ? { ok: true, message: `已把 #${frontendId} ${problem.titleCn} 移到 ${dateKey}` }
+    : result;
+}
+
+// Set a problem's next review date to N days from today (schedule created if
+// the problem has never been rated). Adjusting how soon a problem comes back.
+export async function setProblemReviewDays(frontendId: number, days: number) {
+  const db = getDb();
+  const problem = await db.problem.findUnique({
+    where: { frontendId },
+    include: { reviewSchedule: true },
+  });
+  if (!problem) {
+    return { ok: false, message: `找不到题号 #${frontendId}` };
+  }
+  const d = Math.max(1, Math.min(90, Math.floor(days)));
+  const next = addUtcDays(startOfUtcDay(new Date()), d);
+  await db.reviewSchedule.upsert({
+    where: { problemId: problem.id },
+    update: { nextReviewDate: next },
+    create: {
+      problemId: problem.id,
+      nextReviewDate: next,
+      stage: problem.reviewSchedule?.stage ?? 1,
+      consecutiveStrong: 0,
+    },
+  });
+  return { ok: true, message: `#${frontendId} ${problem.titleCn} 将在 ${toDateKey(next)}（${d} 天后）复习` };
+}
+
+// Exclude / restore a whole Hot100 category (不刷). Excluding also drops its
+// review schedules and upcoming plan items, then tops the week back up.
+export async function setCategoryEnabled(name: string, enabled: boolean) {
+  const db = getDb();
+  const group = TOPIC_GROUPS.find((item) => item.name === name);
+  if (!group) {
+    return { ok: false, message: `未知分类: ${name}（可选: ${TOPIC_GROUPS.map((g) => g.name).join("、")}）` };
+  }
+  await db.problem.updateMany({
+    where: { frontendId: { in: group.ids } },
+    data: { isEnabled: enabled },
+  });
+  if (!enabled) {
+    const today = startOfUtcDay(new Date());
+    const problems = await db.problem.findMany({
+      where: { frontendId: { in: group.ids } },
+      select: { id: true },
+    });
+    const ids = problems.map((problem) => problem.id);
+    await db.reviewSchedule.deleteMany({ where: { problemId: { in: ids } } });
+    await db.planItem.deleteMany({
+      where: { problemId: { in: ids }, isCompleted: false, dailyPlan: { date: { gte: today } } },
+    });
+    await topUpNewProblems(today);
+  }
+  return { ok: true, message: `已${enabled ? "恢复" : "设为不刷"}分类「${name}」` };
+}
+
+// Weak problems for recommendations: studied problems whose average feedback
+// score is high (2 = shaky, 3+ = weak; 5 = no idea), worst first, with the
+// per-category weak count so the assistant can suggest what to focus on.
+export async function getWeakProblems() {
+  const db = getDb();
+  const stats = await db.studySession.groupBy({
+    by: ["problemId"],
+    where: { feelingScore: { not: null } },
+    _avg: { feelingScore: true },
+    _count: { _all: true },
+  });
+  const statById = new Map(stats.map((stat) => [stat.problemId, stat]));
+  const problems = await db.problem.findMany({
+    where: { id: { in: stats.map((stat) => stat.problemId) }, isEnabled: true },
+    select: { id: true, frontendId: true, titleCn: true },
+  });
+  const rows = problems
+    .map((problem) => ({
+      frontendId: problem.frontendId,
+      titleCn: problem.titleCn,
+      category: topicForFrontendId(problem.frontendId),
+      avg: statById.get(problem.id)?._avg.feelingScore ?? 0,
+      count: statById.get(problem.id)?._count._all ?? 0,
+    }))
+    .filter((row) => row.avg >= 2)
+    .sort((a, b) => b.avg - a.avg);
+
+  const byCategory = new Map<string, number>();
+  for (const row of rows) {
+    byCategory.set(row.category, (byCategory.get(row.category) ?? 0) + 1);
+  }
+  return {
+    problems: rows.slice(0, 25),
+    weakByCategory: [...byCategory.entries()].sort((a, b) => b[1] - a[1]),
+  };
 }
