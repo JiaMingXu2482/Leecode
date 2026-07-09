@@ -21,6 +21,25 @@ import { loadWeekPlans } from "@/lib/week-plans";
 
 const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
 
+// Authoritative, per-day rendering of the week plan. Injected into the system
+// prompt and returned by get_current_plan so the model relays real data instead
+// of inventing problem numbers / completion status.
+function renderWeekPlan(weekPlans: Awaited<ReturnType<typeof loadWeekPlans>>) {
+  const weekday = "日一二三四五六";
+  const fmt = (item: (typeof weekPlans)[number]["items"][number]) =>
+    `#${item.problem.frontendId} ${item.problem.titleCn}${item.isCompleted ? "(已完成)" : ""}`;
+  return weekPlans
+    .map((plan) => {
+      const d = new Date(`${plan.date}T00:00:00Z`);
+      const newItems = plan.items.filter((item) => item.kind === "NEW");
+      const reviews = plan.items.filter((item) => item.kind !== "NEW");
+      return `${plan.date}(周${weekday[d.getUTCDay()]}) 新题${newItems.length}道: ${
+        newItems.map(fmt).join("，") || "无"
+      }；复习${reviews.length}道: ${reviews.map(fmt).join("，") || "无"}`;
+    })
+    .join("\n");
+}
+
 type ToolCall = { id: string; function: { name: string; arguments: string } };
 type ChatMessage =
   | { role: "system" | "user"; content: string }
@@ -218,18 +237,7 @@ async function runTool(name: string, args: Record<string, unknown>) {
         getPlanSettings(),
         loadWeekPlans(startOfUtcDay(new Date())),
       ]);
-      const days = weekPlans
-        .map((plan) => {
-          const items = plan.items
-            .map(
-              (item) =>
-                `#${item.problem.frontendId}${item.problem.titleCn}(${item.kind}${item.isCompleted ? ",已完成" : ""})`,
-            )
-            .join(" ");
-          return `${plan.date}: ${items || "空"}`;
-        })
-        .join("\n");
-      return `当前设置: 优先类别=${settings.priorityCategories.join("、") || "无"}, 每天新题=${settings.newPerDay}\n本周计划:\n${days}`;
+      return `当前设置: 优先类别=${settings.priorityCategories.join("、") || "无"}, 每天新题=${settings.newPerDay}\n本周计划(以此为准):\n${renderWeekPlan(weekPlans)}`;
     }
     default:
       return `未知工具: ${name}`;
@@ -272,7 +280,7 @@ export async function POST(request: NextRequest) {
     );
 
   const today = startOfUtcDay(new Date());
-  const settings = await getPlanSettings();
+  const [settings, weekPlans] = await Promise.all([getPlanSettings(), loadWeekPlans(today)]);
   const messages: ChatMessage[] = [
     {
       role: "system",
@@ -282,7 +290,9 @@ export async function POST(request: NextRequest) {
         `分类列表: ${TOPIC_GROUPS.map((g) => g.name).join("、")}。`,
         `当前设置: 优先类别=${settings.priorityCategories.join("、") || "无"}，每天新题=${settings.newPerDay}。复习题按艾宾浩斯到期日自动排，不需要你管。`,
         "能力: 你可以增删移动某天的题、设某题几天后复习、把某类设为不刷或恢复、设优先类别/每日新题数、重排本周；也能读当前计划和用户的薄弱题给出建议。",
-        "规则: 所有改动必须通过工具完成；修改设置(优先类别/每日新题数)后调用 regenerate_week 让本周立即生效（除非用户明确说只改设置）；不确定当前计划时先 get_current_plan；用户问“该重点刷什么/哪里薄弱”时先 get_weak_problems 再给建议。",
+        "【本周计划快照 · 唯一真实来源】\n" + renderWeekPlan(weekPlans),
+        "铁律: 关于“某天有哪些题/几道/完成了没/题量”的一切回答，必须严格照抄上面的快照，只能说快照里真实存在的题；快照没列出的题号就是不在那天的计划里，绝不能凭题号自己补题名、编题目、或猜完成状态。数字要数准。",
+        "规则: 所有改动必须通过工具完成；修改设置(优先类别/每日新题数)后调用 regenerate_week 让本周立即生效（除非用户明确说只改设置）；用户问“该重点刷什么/哪里薄弱”时先 get_weak_problems 再给建议。你本轮做了增删移动等改动后，如果还要向用户汇报“最新的完整计划”，必须先调用 get_current_plan 拿改动后的真实数据，不要凭快照或记忆推算。",
         "最后用简洁的中文总结你做了什么或你的建议（三四句以内），用纯文本，不要用 markdown 星号或标题。",
       ].join("\n"),
     },
@@ -303,7 +313,7 @@ export async function POST(request: NextRequest) {
         model: "deepseek-chat",
         messages,
         tools: TOOLS,
-        temperature: 0.2,
+        temperature: 0,
       }),
     });
     if (!response.ok) {
