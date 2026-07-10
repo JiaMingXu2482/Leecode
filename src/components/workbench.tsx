@@ -73,7 +73,7 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.10.2";
+const APP_VERSION = "v1.11.0";
 const APP_UPDATED = "2026-07-08";
 
 // Monaco (the engine behind LeetCode's code editor) is heavy, so it loads on
@@ -1183,6 +1183,14 @@ function DayPlanList({ items }: { items: DashboardData["weekPlans"][number]["ite
                   {item.problem.difficulty === "EASY" ? "易" : item.problem.difficulty === "MEDIUM" ? "中" : "难"}
                 </span>
                 <span className={`shrink-0 text-[10px] font-medium ${kindTextClass[item.kind]}`}>{kindLabel[item.kind]}</span>
+                {item.carriedFromDate ? (
+                  <span
+                    className="shrink-0 rounded border border-orange-200 bg-orange-50 px-1 py-0.5 text-[10px] font-semibold text-orange-600 dark:border-orange-500/30 dark:bg-orange-500/15 dark:text-orange-300"
+                    title={`${item.carriedFromDate} 未完成，自动顺延到今天（叠加在每日新题目标之上）`}
+                  >
+                    顺延
+                  </span>
+                ) : null}
                 {item.isCompleted ? <Check size={12} className="shrink-0 text-emerald-500" /> : null}
               </a>
             </li>
@@ -1551,6 +1559,14 @@ function TaskRow({
               {item.problem.titleCn}
             </a>
             <Badge className={kindClass[item.kind]}>{kindLabel[item.kind]}</Badge>
+            {item.carriedFromDate ? (
+              <Badge
+                className="border-orange-200 bg-orange-50 text-orange-600 dark:border-orange-500/30 dark:bg-orange-500/15 dark:text-orange-300"
+                title={`${item.carriedFromDate} 未完成，自动顺延到今天`}
+              >
+                顺延
+              </Badge>
+            ) : null}
             <span className="inline-flex items-center gap-1 text-xs text-fg-subtle">
               <BarChart3 size={13} /> 反馈均分 {(item.problem.avgFeelingScore ?? 5).toFixed(1)}
             </span>
@@ -1790,8 +1806,12 @@ function Panel({ title, action, children }: { title: string; action?: string; ch
   );
 }
 
-function Badge({ className, children }: { className: string; children: React.ReactNode }) {
-  return <span className={`inline-flex rounded border px-1.5 py-0.5 text-[11px] font-semibold ${className}`}>{children}</span>;
+function Badge({ className, children, title }: { className: string; children: React.ReactNode; title?: string }) {
+  return (
+    <span title={title} className={`inline-flex rounded border px-1.5 py-0.5 text-[11px] font-semibold ${className}`}>
+      {children}
+    </span>
+  );
 }
 
 function Info({ label, value }: { label: string; value: string }) {

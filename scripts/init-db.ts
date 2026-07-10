@@ -167,6 +167,9 @@ const optionalColumns = [
   `ALTER TABLE "LeetCodeSyncState" ADD COLUMN "lastCodeSyncError" TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE "AppSettings" ADD COLUMN "priorityCategories" TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE "AppSettings" ADD COLUMN "newPerDay" INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE "AppSettings" ADD COLUMN "assistantSoul" TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE "AppSettings" ADD COLUMN "assistantMemory" TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE "PlanItem" ADD COLUMN "carriedFromDate" DATETIME`,
 ];
 
 async function main() {

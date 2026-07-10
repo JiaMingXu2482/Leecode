@@ -373,6 +373,7 @@ export async function getDashboardData(view: DashboardView = "today") {
             kind: item.kind,
             estimatedMinutes: item.estimatedMinutes,
             isCompleted: item.isCompleted || Boolean(todaySessionByProblem.get(item.problemId)),
+            carriedFromDate: item.carriedFromDate ? toDateKey(item.carriedFromDate) : null,
             session: session
               ? {
                   feelingScore: session.feelingScore,
@@ -428,6 +429,7 @@ export async function getDashboardData(view: DashboardView = "today") {
         kind: item.kind,
         estimatedMinutes: item.estimatedMinutes,
         isCompleted: item.isCompleted || sessionDayKeys.has(`${item.problemId}|${toDateKey(plan.date)}`),
+        carriedFromDate: item.carriedFromDate ? toDateKey(item.carriedFromDate) : null,
         problem: {
           id: item.problem.id,
           frontendId: item.problem.frontendId,

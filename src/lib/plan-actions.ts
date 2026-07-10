@@ -45,7 +45,7 @@ export async function regenerateWeek() {
     include: {
       items: {
         where: { isCompleted: true },
-        select: { problemId: true, estimatedMinutes: true, kind: true },
+        select: { problemId: true, estimatedMinutes: true, kind: true, carriedFromDate: true },
       },
     },
   });
@@ -53,12 +53,17 @@ export async function regenerateWeek() {
   // A finished new problem still counts against that day's new-problem quota, so
   // regeneration tops each day up to the quota instead of stacking a full fresh
   // quota on top of the completed ones (which is how days ballooned past N).
+  // Carried-over debt is the exception: it stacks on top of the quota by design,
+  // so a completed carried item doesn't consume one of the day's own slots.
   const completedNewByDate = new Map<string, number>();
   const assigned = new Set<string>();
   for (const plan of existingPlans) {
     const key = toDateKey(plan.date);
     keptByDate.set(key, plan.items);
-    completedNewByDate.set(key, plan.items.filter((item) => item.kind === "NEW").length);
+    completedNewByDate.set(
+      key,
+      plan.items.filter((item) => item.kind === "NEW" && !item.carriedFromDate).length,
+    );
     for (const item of plan.items) {
       assigned.add(item.problemId);
     }

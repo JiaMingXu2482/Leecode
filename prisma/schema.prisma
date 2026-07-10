@@ -172,6 +172,9 @@ model PlanItem {
   estimatedMinutes   Int
   sortOrder          Int
   isCompleted        Boolean           @default(false)
+  // Original planned date when the system auto-carried this unfinished NEW item
+  // forward to today. Carried items stack on top of the per-day quota.
+  carriedFromDate    DateTime?
   createdAt          DateTime          @default(now())
   session            StudySession?
 }
@@ -200,6 +203,10 @@ model AppSettings {
   priorityCategories  String    @default("")
   // Per-day new-problem quota; 0 = use the code default (NEW_PER_DAY).
   newPerDay           Int       @default(0)
+  // Plan-assistant persona/behavior contract ("" = built-in default) and its
+  // accumulated long-term memory of user preferences, one "- fact" per line.
+  assistantSoul       String    @default("")
+  assistantMemory     String    @default("")
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 }

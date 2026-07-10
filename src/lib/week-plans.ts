@@ -10,10 +10,16 @@ export const NEW_POOL_WHERE = {
   sessions: { none: {} },
 } as const;
 
+// How far back the carry-over sweep looks for unfinished NEW items. Debt older
+// than this is stale (its problems are still in the new pool and get re-picked
+// naturally), so we don't dump weeks-old items onto today at once.
+const CARRY_WINDOW_DAYS = 14;
+
 // Self-healing daily plan, run when the dashboard loads: make sure TODAY has
-// all due/overdue reviews and NEW_PER_DAY new problems. Idempotent and purely
-// additive — it never deletes or moves anything the user arranged, and skips
-// problems already planned anywhere this week (e.g. dragged to another day).
+// all due/overdue reviews and NEW_PER_DAY new problems, and carry unfinished
+// NEW items from previous days forward onto today (stacked on top of the
+// quota — the user wants yesterday's debt visible today, e.g. 4 own + 2
+// carried = 6). Idempotent, and never touches anything the user completed.
 // Without this, a new day (or one after a skipped rest day) kept whatever plan
 // happened to exist until the user manually hit 重排本周.
 let ensureInFlight: Promise<void> | null = null;
@@ -33,11 +39,11 @@ async function doEnsureTodayPlan(today: Date) {
   const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7));
   const weekEndExclusive = addUtcDays(weekStart, 7);
 
-  const [settings, weekItems, dueSchedules, todayPlanRow] = await Promise.all([
+  const [settings, weekItems, dueSchedules, todayPlanRow, carryCandidates] = await Promise.all([
     getPlanSettings(),
     db.planItem.findMany({
       where: { dailyPlan: { date: { gte: weekStart, lt: weekEndExclusive } } },
-      select: { problemId: true },
+      select: { problemId: true, dailyPlan: { select: { date: true } } },
     }),
     db.reviewSchedule.findMany({
       where: { nextReviewDate: { lt: tomorrow }, problem: { isEnabled: true } },
@@ -46,17 +52,50 @@ async function doEnsureTodayPlan(today: Date) {
     }),
     db.dailyPlan.findUnique({
       where: { date: today },
-      include: { items: { select: { kind: true, sortOrder: true } } },
+      include: { items: { select: { kind: true, sortOrder: true, carriedFromDate: true } } },
+    }),
+    // Unfinished NEW items from previous days — yesterday's (or a skipped
+    // stretch's) debt, to be moved onto today.
+    db.planItem.findMany({
+      where: {
+        kind: "NEW",
+        isCompleted: false,
+        dailyPlan: { date: { gte: addUtcDays(today, -CARRY_WINDOW_DAYS), lt: today } },
+      },
+      select: {
+        id: true,
+        problemId: true,
+        estimatedMinutes: true,
+        carriedFromDate: true,
+        dailyPlan: { select: { id: true, date: true } },
+        problem: {
+          select: {
+            isEnabled: true,
+            reviewSchedule: { select: { id: true } },
+            sessions: { select: { id: true }, take: 1 },
+          },
+        },
+      },
+      orderBy: { sortOrder: "asc" },
     }),
   ]);
 
   const planned = new Set(weekItems.map((row) => row.problemId));
+  // Problems already planned today or later — debt for these is already
+  // rescheduled, so the stale past item just gets dropped instead of carried.
+  const plannedTodayOnward = new Set(
+    weekItems
+      .filter((row) => row.dailyPlan.date.getTime() >= today.getTime())
+      .map((row) => row.problemId),
+  );
   const missingReviews = dueSchedules.filter((schedule) => !planned.has(schedule.problemId));
-  const todayNewCount = todayPlanRow?.items.filter((item) => item.kind === "NEW").length ?? 0;
+  // Only the day's own picks count toward the quota; carried debt stacks on top.
+  const todayNewCount =
+    todayPlanRow?.items.filter((item) => item.kind === "NEW" && !item.carriedFromDate).length ?? 0;
   const newNeeded = Math.max(0, settings.newPerDay - todayNewCount);
 
-  // Fast path: today is already fully planned.
-  if (todayPlanRow && !missingReviews.length && newNeeded === 0) {
+  // Fast path: today is already fully planned and there is no debt to carry.
+  if (todayPlanRow && !missingReviews.length && newNeeded === 0 && !carryCandidates.length) {
     return;
   }
 
@@ -81,6 +120,46 @@ async function doEnsureTodayPlan(today: Date) {
       },
     });
     planned.add(schedule.problemId);
+  }
+
+  // Carry unfinished NEW debt onto today BEFORE picking fresh problems, so a
+  // carried problem can't also be re-picked as one of today's own. Debt whose
+  // problem was studied since, entered the review cycle, got disabled, or is
+  // already planned today/later is stale — delete the old item instead.
+  for (const item of carryCandidates) {
+    const stale =
+      !item.problem.isEnabled ||
+      item.problem.reviewSchedule !== null ||
+      item.problem.sessions.length > 0 ||
+      plannedTodayOnward.has(item.problemId);
+    const sourcePlanUpdate = db.dailyPlan.update({
+      where: { id: item.dailyPlan.id },
+      data: {
+        totalEstimatedMinutes: { decrement: item.estimatedMinutes },
+        availableMinutes: { decrement: item.estimatedMinutes },
+      },
+    });
+    if (stale) {
+      await db.$transaction([db.planItem.delete({ where: { id: item.id } }), sourcePlanUpdate]);
+      continue;
+    }
+    sortOrder += 1;
+    addedMinutes += item.estimatedMinutes;
+    await db.$transaction([
+      db.planItem.update({
+        where: { id: item.id },
+        data: {
+          dailyPlanId: plan.id,
+          sortOrder,
+          // Keep the ORIGINAL date across repeated carries (7/9 → 7/10 → 7/11
+          // still reads 顺延自7/9).
+          carriedFromDate: item.carriedFromDate ?? item.dailyPlan.date,
+        },
+      }),
+      sourcePlanUpdate,
+    ]);
+    plannedTodayOnward.add(item.problemId);
+    planned.add(item.problemId);
   }
 
   if (newNeeded > 0) {
@@ -131,7 +210,7 @@ export async function topUpNewProblems(today: Date) {
     getPlanSettings(),
     db.dailyPlan.findMany({
       where: { date: { gte: today, lt: weekEndExclusive } },
-      include: { items: { select: { kind: true } } },
+      include: { items: { select: { kind: true, carriedFromDate: true } } },
       orderBy: { date: "asc" },
     }),
     db.planItem.findMany({
@@ -146,7 +225,8 @@ export async function topUpNewProblems(today: Date) {
 
   const assigned = new Set(weekItems.map((row) => row.problemId));
   for (const plan of plans) {
-    const newCount = plan.items.filter((item) => item.kind === "NEW").length;
+    // Carried debt stacks on top of the quota; only own picks count against it.
+    const newCount = plan.items.filter((item) => item.kind === "NEW" && !item.carriedFromDate).length;
     const needed = Math.max(0, settings.newPerDay - newCount);
     if (needed === 0) {
       continue;
@@ -236,6 +316,7 @@ export async function loadWeekPlans(today: Date) {
         kind: item.kind,
         estimatedMinutes: item.estimatedMinutes,
         isCompleted: item.isCompleted || sessionDayKeys.has(`${item.problemId}|${dateKey}`),
+        carriedFromDate: item.carriedFromDate ? toDateKey(item.carriedFromDate) : null,
         problem: {
           id: item.problem.id,
           frontendId: item.problem.frontendId,
