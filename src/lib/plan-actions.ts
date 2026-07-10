@@ -5,7 +5,12 @@ import { orderDailyNewPicks } from "@/lib/new-problem-picker";
 import { calculateReviewRiskScore } from "@/lib/risk";
 import { getPlanSettings } from "@/lib/settings";
 import { topicForFrontendId, TOPIC_GROUPS } from "@/lib/topics";
-import { loadWeekPlans, NEW_POOL_WHERE, topUpNewProblems } from "@/lib/week-plans";
+import {
+  deletePlanItemsRestoringMinutes,
+  loadWeekPlans,
+  NEW_POOL_WHERE,
+  topUpNewProblems,
+} from "@/lib/week-plans";
 
 type CandidateKind = "review" | "retest" | "new";
 type Candidate = { problemId: string; kind: CandidateKind; estimatedMinutes: number };
@@ -145,18 +150,16 @@ export async function regenerateWeek() {
       },
     });
 
-    let sortOrder = kept.length + 1;
-    for (const item of fresh) {
-      await db.planItem.create({
-        data: {
+    if (fresh.length) {
+      await db.planItem.createMany({
+        data: fresh.map((item, index) => ({
           dailyPlanId: dailyPlan.id,
           problemId: item.problemId,
           kind: planKind(item.kind),
           estimatedMinutes: item.estimatedMinutes,
-          sortOrder,
-        },
+          sortOrder: kept.length + 1 + index,
+        })),
       });
-      sortOrder += 1;
     }
   }
 
@@ -199,6 +202,9 @@ export async function addProblemToDate(frontendId: number, dateKey: string) {
   });
   if (!problem) {
     return { ok: false, message: `找不到题号 #${frontendId}` };
+  }
+  if (!problem.isEnabled) {
+    return { ok: false, message: `#${frontendId} ${problem.titleCn} 已被设为不刷，先恢复它才能排进计划` };
   }
 
   const plan = await db.dailyPlan.upsert({
@@ -253,10 +259,12 @@ export async function removeProblemFromPlan(frontendId: number) {
     return { ok: false, message: `找不到题号 #${frontendId}` };
   }
   const today = startOfUtcDay(new Date());
-  const removed = await db.planItem.deleteMany({
-    where: { problemId: problem.id, isCompleted: false, dailyPlan: { date: { gte: today } } },
+  const removed = await deletePlanItemsRestoringMinutes({
+    problemId: problem.id,
+    isCompleted: false,
+    dailyPlan: { date: { gte: today } },
   });
-  return removed.count
+  return removed
     ? { ok: true, message: `已把 #${frontendId} ${problem.titleCn} 从今后的计划里移除` }
     : { ok: true, message: `#${frontendId} ${problem.titleCn} 本来就不在今后的计划里` };
 }
@@ -274,8 +282,10 @@ export async function moveProblemToDate(frontendId: number, dateKey: string) {
     return { ok: false, message: `日期无效: ${dateKey}` };
   }
   const today = startOfUtcDay(new Date());
-  await db.planItem.deleteMany({
-    where: { problemId: problem.id, isCompleted: false, dailyPlan: { date: { gte: today } } },
+  await deletePlanItemsRestoringMinutes({
+    problemId: problem.id,
+    isCompleted: false,
+    dailyPlan: { date: { gte: today } },
   });
   const result = await addProblemToDate(frontendId, dateKey);
   return result.ok
@@ -329,8 +339,10 @@ export async function setCategoryEnabled(name: string, enabled: boolean) {
     });
     const ids = problems.map((problem) => problem.id);
     await db.reviewSchedule.deleteMany({ where: { problemId: { in: ids } } });
-    await db.planItem.deleteMany({
-      where: { problemId: { in: ids }, isCompleted: false, dailyPlan: { date: { gte: today } } },
+    await deletePlanItemsRestoringMinutes({
+      problemId: { in: ids },
+      isCompleted: false,
+      dailyPlan: { date: { gte: today } },
     });
     await topUpNewProblems(today);
   }

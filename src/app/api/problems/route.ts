@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAuthorizedRequest } from "@/lib/auth";
 import { startOfUtcDay } from "@/lib/dates";
 import { getDb } from "@/lib/db";
-import { topUpNewProblems } from "@/lib/week-plans";
+import { deletePlanItemsRestoringMinutes, topUpNewProblems } from "@/lib/week-plans";
 
 export async function GET(request: NextRequest) {
   if (!isAuthorizedRequest(request)) {
@@ -42,16 +42,16 @@ export async function PATCH(request: NextRequest) {
   });
 
   // Excluding a problem drops its review schedule and removes it from today's
-  // and upcoming daily plans so it disappears from the plan right away. This
-  // week's days are then topped back up to the per-day new-problem quota.
+  // and upcoming daily plans so it disappears from the plan right away (done
+  // items stay — completed work is never erased). This week's days are then
+  // topped back up to the per-day new-problem quota.
   if (body.isEnabled === false) {
     const today = startOfUtcDay(new Date());
     await db.reviewSchedule.deleteMany({ where: { problemId: { in: body.problemIds } } });
-    await db.planItem.deleteMany({
-      where: {
-        problemId: { in: body.problemIds },
-        dailyPlan: { date: { gte: today } },
-      },
+    await deletePlanItemsRestoringMinutes({
+      problemId: { in: body.problemIds },
+      isCompleted: false,
+      dailyPlan: { date: { gte: today } },
     });
     await topUpNewProblems(today);
   }

@@ -380,19 +380,31 @@ export async function POST(request: NextRequest) {
   // 12 rounds: cascading a move across several days costs one tool call per
   // hop, plus a final get_current_plan before the summary.
   for (let round = 0; round < 12; round += 1) {
-    const response = await fetch(DEEPSEEK_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "deepseek-chat",
-        messages,
-        tools: TOOLS,
-        temperature: 0,
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch(DEEPSEEK_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          messages,
+          tools: TOOLS,
+          temperature: 0,
+        }),
+        // A hung upstream must not hang the request (and the chat spinner)
+        // forever; 60s per round is generous for a tool-calling turn.
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch (error) {
+      const timedOut = error instanceof Error && error.name === "TimeoutError";
+      return NextResponse.json(
+        { error: timedOut ? "DeepSeek 响应超时，请稍后重试。" : "DeepSeek 连接失败，请稍后重试。" },
+        { status: 504 },
+      );
+    }
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
       return NextResponse.json(
@@ -422,11 +434,18 @@ export async function POST(request: NextRequest) {
       try {
         args = JSON.parse(call.function.arguments || "{}");
       } catch {}
-      const result = await runTool(call.function.name, args);
-      // Reads and brain writes don't touch the plan, so no weekPlans reload.
-      const readOnly = ["get_current_plan", "get_weak_problems", "save_memory", "update_soul"];
-      if (!readOnly.includes(call.function.name)) {
-        changed = true;
+      // A tool blowing up (bad args, DB hiccup) must not 500 the whole
+      // conversation — feed the error back so the model can adapt or report.
+      let result: string;
+      try {
+        result = await runTool(call.function.name, args);
+        // Reads and brain writes don't touch the plan, so no weekPlans reload.
+        const readOnly = ["get_current_plan", "get_weak_problems", "save_memory", "update_soul"];
+        if (!readOnly.includes(call.function.name)) {
+          changed = true;
+        }
+      } catch (error) {
+        result = `工具执行出错: ${error instanceof Error ? error.message : String(error)}`;
       }
       messages.push({ role: "tool", tool_call_id: call.id, content: result });
     }

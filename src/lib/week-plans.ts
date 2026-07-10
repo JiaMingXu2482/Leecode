@@ -15,6 +15,40 @@ export const NEW_POOL_WHERE = {
 // naturally), so we don't dump weeks-old items onto today at once.
 const CARRY_WINDOW_DAYS = 14;
 
+// Deletes plan items and gives their estimated minutes back to the owning
+// daily plans in the same transaction — every deletion path must go through
+// this, or the plans' totalEstimatedMinutes/availableMinutes drift upward
+// forever (deleteMany alone can't touch the parent rows).
+export async function deletePlanItemsRestoringMinutes(
+  where: NonNullable<Parameters<ReturnType<typeof getDb>["planItem"]["findMany"]>[0]>["where"],
+) {
+  const db = getDb();
+  const items = await db.planItem.findMany({
+    where,
+    select: { id: true, dailyPlanId: true, estimatedMinutes: true },
+  });
+  if (!items.length) {
+    return 0;
+  }
+  const minutesByPlan = new Map<string, number>();
+  for (const item of items) {
+    minutesByPlan.set(item.dailyPlanId, (minutesByPlan.get(item.dailyPlanId) ?? 0) + item.estimatedMinutes);
+  }
+  await db.$transaction([
+    db.planItem.deleteMany({ where: { id: { in: items.map((item) => item.id) } } }),
+    ...[...minutesByPlan.entries()].map(([planId, minutes]) =>
+      db.dailyPlan.update({
+        where: { id: planId },
+        data: {
+          totalEstimatedMinutes: { decrement: minutes },
+          availableMinutes: { decrement: minutes },
+        },
+      }),
+    ),
+  ]);
+  return items.length;
+}
+
 // Self-healing daily plan, run when the dashboard loads: make sure TODAY has
 // all due/overdue reviews and NEW_PER_DAY new problems, and carry unfinished
 // NEW items from previous days forward onto today (stacked on top of the
@@ -22,15 +56,21 @@ const CARRY_WINDOW_DAYS = 14;
 // carried = 6). Idempotent, and never touches anything the user completed.
 // Without this, a new day (or one after a skipped rest day) kept whatever plan
 // happened to exist until the user manually hit 重排本周.
-let ensureInFlight: Promise<void> | null = null;
+// The in-flight cache is keyed by the day so a request racing across midnight
+// can't latch onto the PREVIOUS day's run and skip its own.
+let ensureInFlight: { key: string; promise: Promise<void> } | null = null;
 
 export function ensureTodayPlan(today: Date) {
-  if (!ensureInFlight) {
-    ensureInFlight = doEnsureTodayPlan(today).finally(() => {
-      ensureInFlight = null;
+  const key = toDateKey(today);
+  if (!ensureInFlight || ensureInFlight.key !== key) {
+    const promise = doEnsureTodayPlan(today).finally(() => {
+      if (ensureInFlight?.promise === promise) {
+        ensureInFlight = null;
+      }
     });
+    ensureInFlight = { key, promise };
   }
-  return ensureInFlight;
+  return ensureInFlight.promise;
 }
 
 async function doEnsureTodayPlan(today: Date) {
@@ -239,31 +279,33 @@ export async function topUpNewProblems(today: Date) {
     if (!picks.length) {
       return;
     }
+    const maxSort = await db.planItem.aggregate({
+      where: { dailyPlanId: plan.id },
+      _max: { sortOrder: true },
+    });
+    const baseSort = maxSort._max.sortOrder ?? 0;
+    const addedMinutes = picks.reduce((sum, problem) => sum + problem.estimatedNewMinutes, 0);
     for (const problem of picks) {
       assigned.add(problem.id);
-      const maxSort = await db.planItem.aggregate({
-        where: { dailyPlanId: plan.id },
-        _max: { sortOrder: true },
-      });
-      await db.$transaction([
-        db.planItem.create({
-          data: {
-            dailyPlanId: plan.id,
-            problemId: problem.id,
-            kind: "NEW",
-            estimatedMinutes: problem.estimatedNewMinutes,
-            sortOrder: (maxSort._max.sortOrder ?? 0) + 1,
-          },
-        }),
-        db.dailyPlan.update({
-          where: { id: plan.id },
-          data: {
-            totalEstimatedMinutes: { increment: problem.estimatedNewMinutes },
-            availableMinutes: { increment: problem.estimatedNewMinutes },
-          },
-        }),
-      ]);
     }
+    await db.$transaction([
+      db.planItem.createMany({
+        data: picks.map((problem, index) => ({
+          dailyPlanId: plan.id,
+          problemId: problem.id,
+          kind: "NEW" as const,
+          estimatedMinutes: problem.estimatedNewMinutes,
+          sortOrder: baseSort + 1 + index,
+        })),
+      }),
+      db.dailyPlan.update({
+        where: { id: plan.id },
+        data: {
+          totalEstimatedMinutes: { increment: addedMinutes },
+          availableMinutes: { increment: addedMinutes },
+        },
+      }),
+    ]);
   }
 }
 

@@ -223,7 +223,10 @@ export async function DELETE(
     db.planItem.delete({ where: { id } }),
     db.dailyPlan.update({
       where: { id: item.dailyPlanId },
-      data: { totalEstimatedMinutes: { decrement: item.estimatedMinutes } },
+      data: {
+        totalEstimatedMinutes: { decrement: item.estimatedMinutes },
+        availableMinutes: { decrement: item.estimatedMinutes },
+      },
     }),
   ]);
 

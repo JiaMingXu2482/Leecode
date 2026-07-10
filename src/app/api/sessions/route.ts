@@ -58,67 +58,72 @@ export async function POST(request: NextRequest) {
     consecutiveStrong: schedule?.consecutiveStrong ?? 0,
   });
 
-  const session = await db.studySession.create({
-    data: {
-      problemId: body.problemId,
-      kind,
-      rating,
-      spentMinutes: Math.max(1, body.spentMinutes ?? 30),
-      noteIdea: body.noteIdea ?? "",
-      notePitfall: body.notePitfall ?? "",
-      noteComplexity: body.noteComplexity ?? "",
-      noteCodeLink: body.noteCodeLink ?? "",
-      noteLastBlocker: body.noteLastBlocker ?? "",
-      noteMarkdown: body.noteMarkdown ?? "",
-    },
-  });
-
-  await db.problemProgress.upsert({
-    where: { problemId: body.problemId },
-    update: {
-      isAccepted: rating !== "FORGOT",
-      mastery: rating,
-      lastAcceptedAt: rating !== "FORGOT" ? new Date() : undefined,
-      noteIdea: body.noteIdea ?? "",
-      notePitfall: body.notePitfall ?? "",
-      noteComplexity: body.noteComplexity ?? "",
-      noteCodeLink: body.noteCodeLink ?? "",
-      noteLastBlocker: body.noteLastBlocker ?? "",
-    },
-    create: {
-      problemId: body.problemId,
-      isAccepted: rating !== "FORGOT",
-      mastery: rating,
-      lastAcceptedAt: rating !== "FORGOT" ? new Date() : null,
-      noteIdea: body.noteIdea ?? "",
-      notePitfall: body.notePitfall ?? "",
-      noteComplexity: body.noteComplexity ?? "",
-      noteCodeLink: body.noteCodeLink ?? "",
-      noteLastBlocker: body.noteLastBlocker ?? "",
-    },
-  });
-
-  await db.reviewSchedule.upsert({
-    where: { problemId: body.problemId },
-    update: {
-      nextReviewDate: next.nextReviewDate,
-      stage: next.stage,
-      consecutiveStrong: next.consecutiveStrong,
-    },
-    create: {
-      problemId: body.problemId,
-      nextReviewDate: next.nextReviewDate,
-      stage: next.stage,
-      consecutiveStrong: next.consecutiveStrong,
-    },
-  });
-
-  if (body.planItemId) {
-    await db.planItem.update({
-      where: { id: body.planItemId },
-      data: { isCompleted: true },
-    });
-  }
+  // One transaction: a crash between these writes must not leave a session
+  // recorded without its schedule/progress advancing (or vice versa). The plan
+  // item is completed via updateMany so a stale/bogus id is a no-op, not a 500
+  // after everything else was already written.
+  const [session] = await db.$transaction([
+    db.studySession.create({
+      data: {
+        problemId: body.problemId,
+        kind,
+        rating,
+        spentMinutes: Math.max(1, body.spentMinutes ?? 30),
+        noteIdea: body.noteIdea ?? "",
+        notePitfall: body.notePitfall ?? "",
+        noteComplexity: body.noteComplexity ?? "",
+        noteCodeLink: body.noteCodeLink ?? "",
+        noteLastBlocker: body.noteLastBlocker ?? "",
+        noteMarkdown: body.noteMarkdown ?? "",
+      },
+    }),
+    db.problemProgress.upsert({
+      where: { problemId: body.problemId },
+      update: {
+        isAccepted: rating !== "FORGOT",
+        mastery: rating,
+        lastAcceptedAt: rating !== "FORGOT" ? new Date() : undefined,
+        noteIdea: body.noteIdea ?? "",
+        notePitfall: body.notePitfall ?? "",
+        noteComplexity: body.noteComplexity ?? "",
+        noteCodeLink: body.noteCodeLink ?? "",
+        noteLastBlocker: body.noteLastBlocker ?? "",
+      },
+      create: {
+        problemId: body.problemId,
+        isAccepted: rating !== "FORGOT",
+        mastery: rating,
+        lastAcceptedAt: rating !== "FORGOT" ? new Date() : null,
+        noteIdea: body.noteIdea ?? "",
+        notePitfall: body.notePitfall ?? "",
+        noteComplexity: body.noteComplexity ?? "",
+        noteCodeLink: body.noteCodeLink ?? "",
+        noteLastBlocker: body.noteLastBlocker ?? "",
+      },
+    }),
+    db.reviewSchedule.upsert({
+      where: { problemId: body.problemId },
+      update: {
+        nextReviewDate: next.nextReviewDate,
+        stage: next.stage,
+        consecutiveStrong: next.consecutiveStrong,
+      },
+      create: {
+        problemId: body.problemId,
+        nextReviewDate: next.nextReviewDate,
+        stage: next.stage,
+        consecutiveStrong: next.consecutiveStrong,
+      },
+    }),
+    ...(body.planItemId
+      ? [
+          db.planItem.updateMany({
+            where: { id: body.planItemId },
+            data: { isCompleted: true },
+          }),
+        ]
+      : []),
+  ]);
 
   return NextResponse.json({ session, nextReviewDate: next.nextReviewDate });
 }

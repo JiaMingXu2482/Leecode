@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAuthorizedRequest } from "@/lib/auth";
 import { startOfUtcDay } from "@/lib/dates";
 import { getDb } from "@/lib/db";
-import { topUpNewProblems } from "@/lib/week-plans";
+import { deletePlanItemsRestoringMinutes, topUpNewProblems } from "@/lib/week-plans";
 
 export async function GET(
   request: NextRequest,
@@ -47,6 +47,10 @@ export async function PUT(
   };
 
   const db = getDb();
+  const exists = await db.problem.findUnique({ where: { id }, select: { id: true } });
+  if (!exists) {
+    return NextResponse.json({ error: "题目不存在" }, { status: 404 });
+  }
   const problem = await db.problem.update({
     where: { id },
     data: {
@@ -58,13 +62,16 @@ export async function PUT(
   });
 
   // Excluding a problem drops its review schedule and removes it from today's
-  // and upcoming daily plans so it disappears right away. Study history is
-  // kept, and this week's days are topped back up to the per-day quota.
+  // and upcoming daily plans so it disappears right away. Study history and
+  // completed items are kept, and this week's days are topped back up to the
+  // per-day quota.
   if (body.isEnabled === false) {
     const today = startOfUtcDay(new Date());
     await db.reviewSchedule.deleteMany({ where: { problemId: id } });
-    await db.planItem.deleteMany({
-      where: { problemId: id, dailyPlan: { date: { gte: today } } },
+    await deletePlanItemsRestoringMinutes({
+      problemId: id,
+      isCompleted: false,
+      dailyPlan: { date: { gte: today } },
     });
     await topUpNewProblems(today);
   }

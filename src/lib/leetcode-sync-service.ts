@@ -27,6 +27,14 @@ export async function runLeetCodeCnSync({
     throw new LeetCodeSyncInputError("请先填写 leetcode.cn Cookie");
   }
 
+  // Reject a second sync while one is running (manual + cron overlapping would
+  // interleave writes). A RUNNING row older than 10 minutes is a crash relic,
+  // not a live sync — let it through.
+  const staleMs = 10 * 60 * 1000;
+  if (previous.status === "RUNNING" && Date.now() - previous.updatedAt.getTime() < staleMs) {
+    throw new LeetCodeSyncInputError("同步正在进行中，请稍后再试");
+  }
+
   await db.leetCodeSyncState.update({
     where: { id: "leetcode-cn" },
     data: {

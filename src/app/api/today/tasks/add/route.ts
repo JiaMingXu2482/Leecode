@@ -63,7 +63,10 @@ export async function POST(request: NextRequest) {
     });
     await tx.dailyPlan.update({
       where: { id: dailyPlan.id },
-      data: { totalEstimatedMinutes: usedMinutes + next.estimatedNewMinutes },
+      data: {
+        totalEstimatedMinutes: usedMinutes + next.estimatedNewMinutes,
+        availableMinutes: usedMinutes + next.estimatedNewMinutes,
+      },
     });
     return created;
   });
