@@ -23,9 +23,11 @@ const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
 
 // Authoritative, per-day rendering of the week plan. Injected into the system
 // prompt and returned by get_current_plan so the model relays real data instead
-// of inventing problem numbers / completion status.
-function renderWeekPlan(weekPlans: Awaited<ReturnType<typeof loadWeekPlans>>) {
+// of inventing problem numbers / completion status. Flags days whose new-problem
+// count differs from the per-day quota so the assistant notices imbalance.
+function renderWeekPlan(weekPlans: Awaited<ReturnType<typeof loadWeekPlans>>, quota: number) {
   const weekday = "日一二三四五六";
+  const todayKey = toDateKey(startOfUtcDay(new Date()));
   const fmt = (item: (typeof weekPlans)[number]["items"][number]) =>
     `#${item.problem.frontendId} ${item.problem.titleCn}${item.isCompleted ? "(已完成)" : ""}`;
   return weekPlans
@@ -33,7 +35,11 @@ function renderWeekPlan(weekPlans: Awaited<ReturnType<typeof loadWeekPlans>>) {
       const d = new Date(`${plan.date}T00:00:00Z`);
       const newItems = plan.items.filter((item) => item.kind === "NEW");
       const reviews = plan.items.filter((item) => item.kind !== "NEW");
-      return `${plan.date}(周${weekday[d.getUTCDay()]}) 新题${newItems.length}道: ${
+      const flag =
+        plan.date >= todayKey && newItems.length !== quota
+          ? `(${newItems.length > quota ? "超出" : "少于"}每日目标${quota})`
+          : "";
+      return `${plan.date}(周${weekday[d.getUTCDay()]}) 新题${newItems.length}道${flag}: ${
         newItems.map(fmt).join("，") || "无"
       }；复习${reviews.length}道: ${reviews.map(fmt).join("，") || "无"}`;
     })
@@ -237,7 +243,7 @@ async function runTool(name: string, args: Record<string, unknown>) {
         getPlanSettings(),
         loadWeekPlans(startOfUtcDay(new Date())),
       ]);
-      return `当前设置: 优先类别=${settings.priorityCategories.join("、") || "无"}, 每天新题=${settings.newPerDay}\n本周计划(以此为准):\n${renderWeekPlan(weekPlans)}`;
+      return `当前设置: 优先类别=${settings.priorityCategories.join("、") || "无"}, 每天新题=${settings.newPerDay}\n本周计划(以此为准):\n${renderWeekPlan(weekPlans, settings.newPerDay)}`;
     }
     default:
       return `未知工具: ${name}`;
@@ -290,8 +296,10 @@ export async function POST(request: NextRequest) {
         `分类列表: ${TOPIC_GROUPS.map((g) => g.name).join("、")}。`,
         `当前设置: 优先类别=${settings.priorityCategories.join("、") || "无"}，每天新题=${settings.newPerDay}。复习题按艾宾浩斯到期日自动排，不需要你管。`,
         "能力: 你可以增删移动某天的题、设某题几天后复习、把某类设为不刷或恢复、设优先类别/每日新题数、重排本周；也能读当前计划和用户的薄弱题给出建议。",
-        "【本周计划快照 · 唯一真实来源】\n" + renderWeekPlan(weekPlans),
+        "【本周计划快照 · 唯一真实来源】\n" + renderWeekPlan(weekPlans, settings.newPerDay),
         "铁律: 关于“某天有哪些题/几道/完成了没/题量”的一切回答，必须严格照抄上面的快照，只能说快照里真实存在的题；快照没列出的题号就是不在那天的计划里，绝不能凭题号自己补题名、编题目、或猜完成状态。数字要数准。",
+        `配额铁律: 用户的计划是每天 ${settings.newPerDay} 道新题（复习题不算在内，另计）。这是硬约束，任何操作后每天的新题数都应尽量等于 ${settings.newPerDay} 道。移动/新增题目时绝不能把某天堆到超过 ${settings.newPerDay} 道新题：如果把 N 道题移到某天会导致那天超额，就要把那天原本排的、尚未完成的新题按超出的数量顺延到后面的日子（级联），使每天仍是 ${settings.newPerDay} 道；已完成的新题不动。快照里标了“超出每日目标/少于每日目标”的日子就是需要摊平的日子。如果用户明确要求某天多于或少于 ${settings.newPerDay} 道，就先调用 set_new_per_day 改配额再操作，不要闷头堆题。`,
+        `摊平优先用 regenerate_week: 当多天新题数偏离目标、或用户说“帮我把每天弄回 ${settings.newPerDay} 道/重新排匀”时，直接调用 regenerate_week，它会把本周每天重排成 ${settings.newPerDay} 道新题并保留已完成的题，是最省事的摊平方式；只有当用户指名要保留某几道题在特定某天时，才改用逐题 move。`,
         "规则: 所有改动必须通过工具完成；修改设置(优先类别/每日新题数)后调用 regenerate_week 让本周立即生效（除非用户明确说只改设置）；用户问“该重点刷什么/哪里薄弱”时先 get_weak_problems 再给建议。你本轮做了增删移动等改动后，如果还要向用户汇报“最新的完整计划”，必须先调用 get_current_plan 拿改动后的真实数据，不要凭快照或记忆推算。",
         "最后用简洁的中文总结你做了什么或你的建议（三四句以内），用纯文本，不要用 markdown 星号或标题。",
       ].join("\n"),

@@ -42,12 +42,23 @@ export async function regenerateWeek() {
   // Preserve already-completed items — re-planning must never drop done work.
   const existingPlans = await db.dailyPlan.findMany({
     where: { date: { gte: today, lt: endExclusive } },
-    include: { items: { where: { isCompleted: true }, select: { problemId: true, estimatedMinutes: true } } },
+    include: {
+      items: {
+        where: { isCompleted: true },
+        select: { problemId: true, estimatedMinutes: true, kind: true },
+      },
+    },
   });
   const keptByDate = new Map<string, { problemId: string; estimatedMinutes: number }[]>();
+  // A finished new problem still counts against that day's new-problem quota, so
+  // regeneration tops each day up to the quota instead of stacking a full fresh
+  // quota on top of the completed ones (which is how days ballooned past N).
+  const completedNewByDate = new Map<string, number>();
   const assigned = new Set<string>();
   for (const plan of existingPlans) {
-    keptByDate.set(toDateKey(plan.date), plan.items);
+    const key = toDateKey(plan.date);
+    keptByDate.set(key, plan.items);
+    completedNewByDate.set(key, plan.items.filter((item) => item.kind === "NEW").length);
     for (const item of plan.items) {
       assigned.add(item.problemId);
     }
@@ -89,16 +100,18 @@ export async function regenerateWeek() {
   });
   const newByDate = new Map<string, Candidate[]>();
   for (const date of windowDates) {
+    const key = toDateKey(date);
+    const remainingQuota = Math.max(0, settings.newPerDay - (completedNewByDate.get(key) ?? 0));
     const picks = orderDailyNewPicks(
       pool.filter((problem) => !assigned.has(problem.id)),
       settings.priorityCategories,
-      settings.newPerDay,
+      remainingQuota,
     );
     for (const problem of picks) {
       assigned.add(problem.id);
     }
     newByDate.set(
-      toDateKey(date),
+      key,
       picks.map((problem) => ({
         problemId: problem.id,
         kind: "new" as CandidateKind,
