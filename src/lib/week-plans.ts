@@ -15,6 +15,14 @@ export const NEW_POOL_WHERE = {
 // naturally), so we don't dump weeks-old items onto today at once.
 const CARRY_WINDOW_DAYS = 14;
 
+// Backlog caps: a skipped day must NOT bury today (the user once came back to
+// a 27-item Monday). Carried new problems stack at most CARRY_PER_DAY per day
+// on top of the quota (oldest debt first; the rest waits for the next days),
+// and a day holds at most MAX_REVIEWS_PER_DAY reviews (most overdue first;
+// the overflow trickles into the following days).
+export const CARRY_PER_DAY = 2;
+export const MAX_REVIEWS_PER_DAY = 10;
+
 // Deletes plan items and gives their estimated minutes back to the owning
 // daily plans in the same transaction — every deletion path must go through
 // this, or the plans' totalEstimatedMinutes/availableMinutes drift upward
@@ -95,7 +103,8 @@ async function doEnsureTodayPlan(today: Date) {
       include: { items: { select: { kind: true, sortOrder: true, carriedFromDate: true } } },
     }),
     // Unfinished NEW items from previous days — yesterday's (or a skipped
-    // stretch's) debt, to be moved onto today.
+    // stretch's) debt. Oldest first: the day's carry allowance goes to the
+    // longest-waiting problems, the rest stay put for the following days.
     db.planItem.findMany({
       where: {
         kind: "NEW",
@@ -116,7 +125,7 @@ async function doEnsureTodayPlan(today: Date) {
           },
         },
       },
-      orderBy: { sortOrder: "asc" },
+      orderBy: [{ dailyPlan: { date: "asc" } }, { sortOrder: "asc" }],
     }),
   ]);
 
@@ -128,11 +137,22 @@ async function doEnsureTodayPlan(today: Date) {
       .filter((row) => row.dailyPlan.date.getTime() >= today.getTime())
       .map((row) => row.problemId),
   );
-  const missingReviews = dueSchedules.filter((schedule) => !planned.has(schedule.problemId));
+  // Reviews: dueSchedules is ordered by nextReviewDate asc, so after a skipped
+  // day the most-overdue catch-ups win today's capped slots and the rest stay
+  // due — tomorrow's run picks them up, and so on (trickle, not a landslide).
+  const todayReviewCount = todayPlanRow?.items.filter((item) => item.kind !== "NEW").length ?? 0;
+  const reviewAllowance = Math.max(0, MAX_REVIEWS_PER_DAY - todayReviewCount);
+  const missingReviews = dueSchedules
+    .filter((schedule) => !planned.has(schedule.problemId))
+    .slice(0, reviewAllowance);
   // Only the day's own picks count toward the quota; carried debt stacks on top.
   const todayNewCount =
     todayPlanRow?.items.filter((item) => item.kind === "NEW" && !item.carriedFromDate).length ?? 0;
   const newNeeded = Math.max(0, settings.newPerDay - todayNewCount);
+  // Carried debt already sitting on today counts against today's carry cap.
+  const todayCarriedCount =
+    todayPlanRow?.items.filter((item) => item.kind === "NEW" && item.carriedFromDate).length ?? 0;
+  let carryAllowance = Math.max(0, CARRY_PER_DAY - todayCarriedCount);
 
   // Fast path: today is already fully planned and there is no debt to carry.
   if (todayPlanRow && !missingReviews.length && newNeeded === 0 && !carryCandidates.length) {
@@ -165,7 +185,9 @@ async function doEnsureTodayPlan(today: Date) {
   // Carry unfinished NEW debt onto today BEFORE picking fresh problems, so a
   // carried problem can't also be re-picked as one of today's own. Debt whose
   // problem was studied since, entered the review cycle, got disabled, or is
-  // already planned today/later is stale — delete the old item instead.
+  // already planned today/later is stale — delete the old item instead. Only
+  // CARRY_PER_DAY problems move today (oldest first); the rest stay on their
+  // past plans and later days keep draining them.
   for (const item of carryCandidates) {
     const stale =
       !item.problem.isEnabled ||
@@ -183,6 +205,10 @@ async function doEnsureTodayPlan(today: Date) {
       await db.$transaction([db.planItem.delete({ where: { id: item.id } }), sourcePlanUpdate]);
       continue;
     }
+    if (carryAllowance <= 0) {
+      continue;
+    }
+    carryAllowance -= 1;
     sortOrder += 1;
     addedMinutes += item.estimatedMinutes;
     await db.$transaction([

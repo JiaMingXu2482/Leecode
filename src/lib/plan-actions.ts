@@ -8,6 +8,7 @@ import { topicForFrontendId, TOPIC_GROUPS } from "@/lib/topics";
 import {
   deletePlanItemsRestoringMinutes,
   loadWeekPlans,
+  MAX_REVIEWS_PER_DAY,
   NEW_POOL_WHERE,
   topUpNewProblems,
 } from "@/lib/week-plans";
@@ -61,6 +62,9 @@ export async function regenerateWeek() {
   // Carried-over debt is the exception: it stacks on top of the quota by design,
   // so a completed carried item doesn't consume one of the day's own slots.
   const completedNewByDate = new Map<string, number>();
+  // Completed reviews still occupy review capacity — a day the user already did
+  // 6 reviews on shouldn't be refilled to the cap on top of them.
+  const completedReviewsByDate = new Map<string, number>();
   const assigned = new Set<string>();
   for (const plan of existingPlans) {
     const key = toDateKey(plan.date);
@@ -69,39 +73,66 @@ export async function regenerateWeek() {
       key,
       plan.items.filter((item) => item.kind === "NEW" && !item.carriedFromDate).length,
     );
+    completedReviewsByDate.set(key, plan.items.filter((item) => item.kind !== "NEW").length);
     for (const item of plan.items) {
       assigned.add(item.problemId);
     }
   }
 
-  // Reviews land on their due day (overdue ones catch up on today); anything
-  // due after this week waits for a later week.
+  // Reviews land on their due day; anything due after this week waits for a
+  // later week. Overdue ones do NOT all pile onto today — they fill the week's
+  // days most-overdue-first, each day capped at MAX_REVIEWS_PER_DAY (counting
+  // that day's on-time reviews and already-completed ones), so a skipped day
+  // becomes a trickle over the coming days instead of a 27-item Monday.
   const schedules = await db.reviewSchedule.findMany({
     where: { problem: { isEnabled: true } },
     include: { problem: { select: { estimatedReviewMinutes: true } } },
     orderBy: { nextReviewDate: "asc" },
   });
   const reviewsByDate = new Map<string, Candidate[]>();
+  const overdueQueue: Candidate[] = [];
   for (const schedule of schedules) {
     if (assigned.has(schedule.problemId)) {
       continue;
     }
-    let dueKey = toDateKey(startOfUtcDay(schedule.nextReviewDate));
-    if (dueKey < firstKey) {
-      dueKey = firstKey; // overdue → today
-    }
+    const dueKey = toDateKey(startOfUtcDay(schedule.nextReviewDate));
     if (dueKey > lastKey) {
+      continue;
+    }
+    const candidate: Candidate = {
+      problemId: schedule.problemId,
+      kind: schedule.stage === 0 ? "retest" : "review",
+      estimatedMinutes: schedule.problem.estimatedReviewMinutes,
+    };
+    if (dueKey < firstKey) {
+      overdueQueue.push(candidate); // ordered most-overdue-first via the query
       continue;
     }
     assigned.add(schedule.problemId);
     const list = reviewsByDate.get(dueKey) ?? [];
-    list.push({
-      problemId: schedule.problemId,
-      kind: schedule.stage === 0 ? "retest" : "review",
-      estimatedMinutes: schedule.problem.estimatedReviewMinutes,
-    });
+    list.push(candidate);
     reviewsByDate.set(dueKey, list);
   }
+  for (const date of windowDates) {
+    if (!overdueQueue.length) {
+      break;
+    }
+    const key = toDateKey(date);
+    const used = (completedReviewsByDate.get(key) ?? 0) + (reviewsByDate.get(key)?.length ?? 0);
+    let capacity = Math.max(0, MAX_REVIEWS_PER_DAY - used);
+    if (capacity === 0) {
+      continue;
+    }
+    const list = reviewsByDate.get(key) ?? [];
+    while (capacity > 0 && overdueQueue.length) {
+      const candidate = overdueQueue.shift()!;
+      assigned.add(candidate.problemId);
+      list.push(candidate);
+      capacity -= 1;
+    }
+    reviewsByDate.set(key, list);
+  }
+  // Whatever still overflows the week stays due and trickles in on later days.
 
   // New problems: per-day quota, priority categories first.
   const pool = await db.problem.findMany({
