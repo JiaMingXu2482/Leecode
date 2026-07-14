@@ -16,7 +16,6 @@ import {
   Moon,
   NotebookPen,
   PanelLeft,
-  Plus,
   RefreshCw,
   Search,
   Settings2,
@@ -73,7 +72,7 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.12.1";
+const APP_VERSION = "v1.12.2";
 const APP_UPDATED = "2026-07-08";
 
 // Monaco (the engine behind LeetCode's code editor) is heavy, so it loads on
@@ -304,12 +303,6 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
     if (ok) router.refresh();
   }
 
-  async function addTodayTask() {
-    const ok = await requestJson("/api/today/tasks/add", {});
-    if (ok) router.refresh();
-  }
-
-
   async function markItem(
     id: string,
     feelingScore: number,
@@ -449,12 +442,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
 
         <div className="px-5 py-5">
           {active === "today" ? (
-            <TodayView
-              data={data}
-              onAdd={addTodayTask}
-              onMark={markItem}
-              completion={completion}
-            />
+            <TodayView data={data} onMark={markItem} completion={completion} />
           ) : null}
           {active === "weekly" ? (
             <WeeklyView
@@ -490,11 +478,9 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
 
 function TodayView({
   data,
-  onAdd,
   onMark,
 }: {
   data: DashboardData;
-  onAdd: () => void;
   onMark: (
     id: string,
     feelingScore: number,
@@ -504,22 +490,17 @@ function TodayView({
   ) => void;
   completion: number;
 }) {
-  const items = data.todayPlan?.items ?? [];
+  // New problems first — the user works the list top-down and does new problems
+  // before reviews. Stable sort keeps each group in its backend sortOrder.
+  const items = [...(data.todayPlan?.items ?? [])].sort(
+    (a, b) => (a.kind === "NEW" ? 0 : 1) - (b.kind === "NEW" ? 0 : 1),
+  );
   const dateKey = data.todayPlan?.date ?? data.today;
   const dateLabel = `${weekdayLabels[new Date(`${dateKey}T00:00:00Z`).getUTCDay()]} ${formatYmd(dateKey)}`;
 
   return (
     <div className="space-y-5">
       <TodayOverview data={data} />
-      <div className="flex justify-end">
-        <button
-          onClick={onAdd}
-          className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700"
-        >
-          <Plus size={15} />
-          添加一题
-        </button>
-      </div>
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
         <div className="relative flex items-center justify-center px-4 py-3">
           <h2 className="text-sm font-semibold">{dateLabel}</h2>
