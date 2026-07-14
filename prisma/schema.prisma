@@ -155,6 +155,10 @@ model DailyPlan {
   date                  DateTime   @unique
   availableMinutes      Int
   totalEstimatedMinutes Int        @default(0)
+  // When the auto-scheduler first filled this day's new-problem quota (and
+  // carried debt). Once set, ensureTodayPlan never auto-adds new/carried items
+  // to this day again, so the user's manual drags/removals are the last word.
+  newFilledAt           DateTime?
   createdAt             DateTime   @default(now())
   updatedAt             DateTime   @updatedAt
   items                 PlanItem[]

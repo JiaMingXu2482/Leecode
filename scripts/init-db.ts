@@ -170,6 +170,7 @@ const optionalColumns = [
   `ALTER TABLE "AppSettings" ADD COLUMN "assistantSoul" TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE "AppSettings" ADD COLUMN "assistantMemory" TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE "PlanItem" ADD COLUMN "carriedFromDate" DATETIME`,
+  `ALTER TABLE "DailyPlan" ADD COLUMN "newFilledAt" DATETIME`,
 ];
 
 async function main() {

@@ -145,17 +145,23 @@ async function doEnsureTodayPlan(today: Date) {
   const missingReviews = dueSchedules
     .filter((schedule) => !planned.has(schedule.problemId))
     .slice(0, reviewAllowance);
+  // Manual drags are the last word: once today's new quota has been auto-filled
+  // once, we never auto-add new/carried problems to it again. So if the user
+  // drags today's new problems to later days and reopens today, the system
+  // does NOT quietly refill it. Reviews (due-date driven) still trickle in.
+  const shouldFillNew = !todayPlanRow?.newFilledAt;
   // Only the day's own picks count toward the quota; carried debt stacks on top.
   const todayNewCount =
     todayPlanRow?.items.filter((item) => item.kind === "NEW" && !item.carriedFromDate).length ?? 0;
-  const newNeeded = Math.max(0, settings.newPerDay - todayNewCount);
+  const newNeeded = shouldFillNew ? Math.max(0, settings.newPerDay - todayNewCount) : 0;
   // Carried debt already sitting on today counts against today's carry cap.
   const todayCarriedCount =
     todayPlanRow?.items.filter((item) => item.kind === "NEW" && item.carriedFromDate).length ?? 0;
-  let carryAllowance = Math.max(0, CARRY_PER_DAY - todayCarriedCount);
+  let carryAllowance = shouldFillNew ? Math.max(0, CARRY_PER_DAY - todayCarriedCount) : 0;
 
-  // Fast path: today is already fully planned and there is no debt to carry.
-  if (todayPlanRow && !missingReviews.length && newNeeded === 0 && !carryCandidates.length) {
+  // Fast path: today exists, its new quota is already settled (or the user
+  // arranged it), and no review is waiting to be added.
+  if (todayPlanRow && !missingReviews.length && !shouldFillNew) {
     return;
   }
 
@@ -254,12 +260,19 @@ async function doEnsureTodayPlan(today: Date) {
     }
   }
 
-  if (addedMinutes > 0) {
+  // Stamp newFilledAt whenever we were in fill mode (even if nothing was added,
+  // e.g. the pool is empty) so the auto-fill runs exactly once for this day.
+  if (addedMinutes > 0 || shouldFillNew) {
     await db.dailyPlan.update({
       where: { id: plan.id },
       data: {
-        totalEstimatedMinutes: { increment: addedMinutes },
-        availableMinutes: { increment: addedMinutes },
+        ...(addedMinutes > 0
+          ? {
+              totalEstimatedMinutes: { increment: addedMinutes },
+              availableMinutes: { increment: addedMinutes },
+            }
+          : {}),
+        ...(shouldFillNew ? { newFilledAt: new Date() } : {}),
       },
     });
   }

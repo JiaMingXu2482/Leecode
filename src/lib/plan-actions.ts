@@ -167,17 +167,23 @@ export async function regenerateWeek() {
     const fresh = [...(reviewsByDate.get(key) ?? []), ...(newByDate.get(key) ?? [])];
     const keptMinutes = kept.reduce((sum, item) => sum + item.estimatedMinutes, 0);
     const totalMinutes = keptMinutes + fresh.reduce((sum, item) => sum + item.estimatedMinutes, 0);
+    // Marking today as auto-filled makes the regenerated result authoritative:
+    // ensureTodayPlan won't pile carried debt on top of it afterward. Future
+    // days stay unmarked so they still catch up debt when they arrive.
+    const filledMark = date.getTime() === today.getTime() ? new Date() : undefined;
     const dailyPlan = await db.dailyPlan.upsert({
       where: { date },
       update: {
         availableMinutes: totalMinutes,
         totalEstimatedMinutes: totalMinutes,
+        newFilledAt: filledMark,
         items: { deleteMany: { isCompleted: false } },
       },
       create: {
         date,
         availableMinutes: totalMinutes,
         totalEstimatedMinutes: totalMinutes,
+        newFilledAt: filledMark,
       },
     });
 
