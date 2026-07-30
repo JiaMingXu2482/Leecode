@@ -8,6 +8,7 @@ import {
   Check,
   ChevronDown,
   Code2,
+  Copy,
   DatabaseZap,
   ExternalLink,
   GripVertical,
@@ -16,24 +17,28 @@ import {
   Moon,
   NotebookPen,
   PanelLeft,
+  Pin,
+  Plus,
   RefreshCw,
   Search,
   Settings2,
   Sparkles,
   Sun,
   Target,
+  Trash2,
   X,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { type DragEvent, useEffect, useRef, useState, useTransition } from "react";
+import { ACM_NOTE_CATEGORIES, filterAcmNotes } from "@/lib/acm-note-shared";
 import type { DashboardData } from "@/lib/dashboard-data";
 import { noteToHtml, noteToPlainText } from "@/lib/notes";
 import { defaultReviewDays, type FeelingScore } from "@/lib/review-scheduler";
 import { TOPIC_GROUPS } from "@/lib/topics";
 
-type ActiveView = "today" | "weekly" | "history" | "reviews" | "stats" | "sync";
+type ActiveView = "today" | "weekly" | "history" | "reviews" | "stats" | "sync" | "acm-notes";
 type WeekDay = DashboardData["availability"][number];
 type WeekPlans = DashboardData["weekPlans"];
 
@@ -42,6 +47,7 @@ const navItems: { href: string; key: ActiveView; label: string; icon: typeof Tar
   { href: "/weekly", key: "weekly", label: "周计划", icon: CalendarDays },
   { href: "/history", key: "history", label: "历史笔记", icon: NotebookPen },
   { href: "/reviews", key: "reviews", label: "刷题计划", icon: ListChecks },
+  { href: "/acm-notes", key: "acm-notes", label: "ACM 笔记", icon: Code2 },
   { href: "/stats", key: "stats", label: "统计", icon: DatabaseZap },
   { href: "/settings/sync", key: "sync", label: "力扣同步", icon: Settings2 },
 ];
@@ -51,6 +57,10 @@ const viewTitle: Record<ActiveView, { title: string; subtitle: string }> = {
   weekly: { title: "周计划", subtitle: "" },
   history: { title: "历史笔记", subtitle: "按天回顾做过的题、当时的反馈分数和笔记（解题思路 / C++ 语法分两栏）。" },
   reviews: { title: "刷题计划", subtitle: "按 Hot100 分类管理：勾选不想刷的题或整类，未勾选的进入刷题列表。" },
+  "acm-notes": {
+    title: "ACM 笔记",
+    subtitle: "机考用的代码模板和踩坑记录，支持搜索和一键复制。写题时开着这页。",
+  },
   stats: { title: "统计", subtitle: "每道题的做题反馈平均分，可按分数升序或降序排序。" },
   sync: { title: "力扣同步", subtitle: "粘贴 leetcode.cn Cookie，同步 AC 状态、提交画像和最近代码。" },
 };
@@ -72,7 +82,7 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.12.2";
+const APP_VERSION = "v1.13.0";
 const APP_UPDATED = "2026-07-08";
 
 // Monaco (the engine behind LeetCode's code editor) is heavy, so it loads on
@@ -466,12 +476,350 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               onTogglePriority={togglePriorityCategory}
             />
           ) : null}
+          {active === "acm-notes" ? <AcmNotesView initialNotes={data.acmNotes} /> : null}
           {active === "stats" ? <StatsView data={data} completion={completion} /> : null}
           {active === "sync" ? (
             <SyncView data={data} cookie={cookie} setCookie={setCookie} syncLeetCode={syncLeetCode} busy={busy} />
           ) : null}
         </div>
       </main>
+    </div>
+  );
+}
+
+// ── ACM 笔记：机考用的代码模板与踩坑记录 ────────────────────────────────
+// A searchable, copy-to-clipboard knowledge base. Deliberately separate from
+// per-problem session notes: this is reference material used *during* a contest.
+type AcmNote = DashboardData["acmNotes"][number];
+
+const acmCategoryClass: Record<string, string> = {
+  输入输出: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-300",
+  字符串: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300",
+  排序比较: "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/15 dark:text-purple-300",
+  容器: "border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-500/30 dark:bg-cyan-500/15 dark:text-cyan-300",
+  踩坑: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300",
+  题目笔记: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300",
+};
+
+function AcmNotesView({ initialNotes }: { initialNotes: AcmNote[] }) {
+  const [notes, setNotes] = useState(initialNotes);
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState<string>("");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  // Draft for the note being edited or created ("new" = the create form).
+  const [draft, setDraft] = useState<{ title: string; category: string; content: string }>({
+    title: "",
+    category: "输入输出",
+    content: "",
+  });
+
+  async function send(path: string, body?: unknown, method = "POST") {
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(path, {
+        method,
+        headers: body ? { "content-type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        notes?: AcmNote[];
+        error?: string;
+      };
+      if (!response.ok) {
+        setError(payload.error ?? "操作失败");
+        return false;
+      }
+      if (payload.notes) setNotes(payload.notes);
+      return true;
+    } catch {
+      setError("网络错误");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyNote(note: AcmNote) {
+    try {
+      await navigator.clipboard.writeText(note.content);
+      setCopiedId(note.id);
+      setTimeout(() => setCopiedId((id) => (id === note.id ? null : id)), 1500);
+    } catch {
+      setError("复制失败，请手动选中");
+    }
+  }
+
+  function startEdit(note: AcmNote) {
+    setEditingId(note.id);
+    setDraft({ title: note.title, category: note.category, content: note.content });
+  }
+
+  function startCreate() {
+    setEditingId("new");
+    setDraft({ title: "", category: category || "输入输出", content: "" });
+  }
+
+  async function saveDraft() {
+    if (!draft.title.trim()) {
+      setError("标题不能为空");
+      return;
+    }
+    const ok =
+      editingId === "new"
+        ? await send("/api/acm-notes", draft)
+        : await send(`/api/acm-notes/${editingId}`, draft, "PATCH");
+    if (ok) setEditingId(null);
+  }
+
+  const filtered = filterAcmNotes(notes, query, category);
+
+  return (
+    <div className="space-y-4">
+      {/* 搜索 + 新建 */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-subtle" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索标题和内容，例如 getline、cmp、ignore"
+            className="h-10 w-full rounded-md border border-line-strong bg-surface pl-9 pr-3 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-blue-400"
+          />
+        </div>
+        <button
+          onClick={startCreate}
+          className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-md bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          <Plus size={15} />
+          新建笔记
+        </button>
+      </div>
+
+      {/* 分类筛选 */}
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          onClick={() => setCategory("")}
+          className={`rounded-md border px-2.5 py-1 text-xs font-medium ${
+            category === ""
+              ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/20 dark:text-blue-300"
+              : "border-line-strong text-fg-subtle hover:bg-muted"
+          }`}
+        >
+          全部 {notes.length}
+        </button>
+        {ACM_NOTE_CATEGORIES.map((name) => {
+          const count = notes.filter((note) => note.category === name).length;
+          return (
+            <button
+              key={name}
+              onClick={() => setCategory(category === name ? "" : name)}
+              className={`rounded-md border px-2.5 py-1 text-xs font-medium ${
+                category === name
+                  ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/20 dark:text-blue-300"
+                  : "border-line-strong text-fg-subtle hover:bg-muted"
+              }`}
+            >
+              {name} {count}
+            </button>
+          );
+        })}
+      </div>
+
+      {error ? (
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300">
+          {error}
+        </p>
+      ) : null}
+
+      {/* 新建表单 */}
+      {editingId === "new" ? (
+        <AcmNoteEditor
+          draft={draft}
+          setDraft={setDraft}
+          busy={busy}
+          onSave={saveDraft}
+          onCancel={() => setEditingId(null)}
+        />
+      ) : null}
+
+      {/* 笔记列表 */}
+      {filtered.length ? (
+        <ul className="space-y-2">
+          {filtered.map((note) =>
+            editingId === note.id ? (
+              <li key={note.id}>
+                <AcmNoteEditor
+                  draft={draft}
+                  setDraft={setDraft}
+                  busy={busy}
+                  onSave={saveDraft}
+                  onCancel={() => setEditingId(null)}
+                />
+              </li>
+            ) : (
+              <li
+                key={note.id}
+                className="overflow-hidden rounded-lg border border-line bg-surface"
+              >
+                <div className="flex items-start gap-2 px-3 py-2.5">
+                  <button
+                    onClick={() =>
+                      setExpanded((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(note.id)) next.delete(note.id);
+                        else next.add(note.id);
+                        return next;
+                      })
+                    }
+                    className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                  >
+                    <ChevronDown
+                      size={15}
+                      className={`mt-0.5 shrink-0 text-fg-subtle transition-transform ${
+                        expanded.has(note.id) ? "" : "-rotate-90"
+                      }`}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        {note.isPinned ? (
+                          <Pin size={12} className="shrink-0 text-amber-500" />
+                        ) : null}
+                        <span className="text-sm font-semibold text-fg">{note.title}</span>
+                        <Badge className={acmCategoryClass[note.category] ?? ""}>
+                          {note.category}
+                        </Badge>
+                      </span>
+                      {!expanded.has(note.id) ? (
+                        <span className="mt-1 block truncate font-mono text-xs text-fg-subtle">
+                          {note.content.split("\n").find((row) => row.trim()) ?? "（空）"}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      onClick={() => copyNote(note)}
+                      title="复制全文到剪贴板"
+                      className="inline-flex h-7 items-center gap-1 rounded border border-line-strong px-2 text-xs text-fg-subtle hover:bg-muted"
+                    >
+                      {copiedId === note.id ? (
+                        <>
+                          <Check size={12} className="text-emerald-500" />
+                          已复制
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={12} />
+                          复制
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => send(`/api/acm-notes/${note.id}`, { isPinned: !note.isPinned }, "PATCH")}
+                      title={note.isPinned ? "取消置顶" : "置顶"}
+                      className={`inline-flex h-7 w-7 items-center justify-center rounded border border-line-strong hover:bg-muted ${
+                        note.isPinned ? "text-amber-500" : "text-fg-subtle"
+                      }`}
+                    >
+                      <Pin size={12} />
+                    </button>
+                    <button
+                      onClick={() => startEdit(note)}
+                      title="编辑"
+                      className="inline-flex h-7 items-center rounded border border-line-strong px-2 text-xs text-fg-subtle hover:bg-muted"
+                    >
+                      编辑
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`删除「${note.title}」？`)) {
+                          send(`/api/acm-notes/${note.id}`, undefined, "DELETE");
+                        }
+                      }}
+                      title="删除"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded border border-line-strong text-fg-subtle hover:bg-muted hover:text-red-500"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+                {expanded.has(note.id) ? (
+                  <pre className="overflow-x-auto border-t border-line bg-muted/40 px-4 py-3 font-mono text-xs leading-relaxed text-fg">
+                    {note.content}
+                  </pre>
+                ) : null}
+              </li>
+            ),
+          )}
+        </ul>
+      ) : (
+        <EmptyState
+          text={
+            query || category
+              ? "没有匹配的笔记，换个关键词或清掉分类筛选。"
+              : "还没有笔记，点右上角「新建笔记」开始记录。"
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+function AcmNoteEditor({
+  draft,
+  setDraft,
+  busy,
+  onSave,
+  onCancel,
+}: {
+  draft: { title: string; category: string; content: string };
+  setDraft: (next: { title: string; category: string; content: string }) => void;
+  busy: boolean;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-blue-300 bg-surface p-3 dark:border-blue-500/40">
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input
+          value={draft.title}
+          onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+          placeholder="标题，例如「输入骨架 · 5 种常见格式」"
+          className="h-9 flex-1 rounded-md border border-line-strong bg-surface px-3 text-sm text-fg outline-none placeholder:text-fg-subtle focus:border-blue-400"
+        />
+        <select
+          value={draft.category}
+          onChange={(event) => setDraft({ ...draft, category: event.target.value })}
+          className="h-9 rounded-md border border-line-strong bg-surface px-2 text-sm text-fg outline-none focus:border-blue-400"
+        >
+          {ACM_NOTE_CATEGORIES.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <MonacoNoteEditor value={draft.content} onChange={(next) => setDraft({ ...draft, content: next })} />
+      <div className="mt-2 flex justify-end gap-2">
+        <button
+          onClick={onCancel}
+          className="inline-flex h-9 items-center rounded-md border border-line-strong px-3 text-sm font-medium text-fg hover:bg-muted"
+        >
+          取消
+        </button>
+        <button
+          onClick={onSave}
+          disabled={busy}
+          className="inline-flex h-9 items-center rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-btn-strong"
+        >
+          {busy ? "保存中…" : "保存"}
+        </button>
+      </div>
     </div>
   );
 }

@@ -2,10 +2,18 @@ import { redirect } from "next/navigation";
 import { addUtcDays, minutesBetween, nextNDays, startOfUtcDay, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { isAuthorizedServer } from "@/lib/auth";
+import { ensureAcmNotesSeeded, loadAcmNotes } from "@/lib/acm-notes";
 import { getPlanSettings } from "@/lib/settings";
 import { ensureTodayPlan } from "@/lib/week-plans";
 
-export type DashboardView = "today" | "weekly" | "history" | "reviews" | "stats" | "sync";
+export type DashboardView =
+  | "today"
+  | "weekly"
+  | "history"
+  | "reviews"
+  | "stats"
+  | "sync"
+  | "acm-notes";
 
 // Loads ONLY what the given view renders. All views share one return shape (so
 // the client component types stay unchanged), but unused heavy sections come
@@ -21,6 +29,7 @@ export async function getDashboardData(view: DashboardView = "today") {
   const wantHistory = view === "history";
   const wantProblems = wantWeekly || view === "reviews" || view === "stats";
   const wantRecent = wantToday || wantWeekly || wantHistory;
+  const wantAcmNotes = view === "acm-notes";
 
   const db = getDb();
   const today = startOfUtcDay(new Date());
@@ -34,8 +43,13 @@ export async function getDashboardData(view: DashboardView = "today") {
   if (wantToday || wantWeekly) {
     await ensureTodayPlan(today);
   }
+  // First visit to the notes page gets the starter knowledge base.
+  if (wantAcmNotes) {
+    await ensureAcmNotesSeeded();
+  }
 
   const planSettings = await getPlanSettings();
+  const acmNotes = wantAcmNotes ? await loadAcmNotes() : [];
   const [
     todayPlan,
     availabilityRows,
@@ -442,6 +456,7 @@ export async function getDashboardData(view: DashboardView = "today") {
     weekHistory,
     todayExtra,
     planSettings,
+    acmNotes,
     metrics: {
       weekNew,
       monthNew,

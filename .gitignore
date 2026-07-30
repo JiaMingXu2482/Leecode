@@ -55,3 +55,6 @@ next-env.d.ts
 
 # Local Netlify folder
 .netlify
+
+# local tooling config written into the repo by mcporter (agent-reach)
+/config/mcporter.json

@@ -197,6 +197,20 @@ model LeetCodeSyncState {
   updatedAt         DateTime   @updatedAt
 }
 
+// Personal ACM/机考 knowledge base: reusable code templates, I/O skeletons and
+// pitfall notes. Separate from StudySession notes (which are per-problem logs) —
+// this is a searchable reference the user copies from during a contest.
+model AcmNote {
+  id        String   @id @default(cuid())
+  title     String
+  category  String   @default("输入输出")
+  content   String   @default("")
+  isPinned  Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model AppSettings {
   id                  String    @id @default("default")
   appPasswordHash     String    @default("")
