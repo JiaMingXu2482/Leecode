@@ -46,8 +46,10 @@ export async function runLeetCodeCnSync({
   });
 
   try {
+    // LEETCODE only — 牛客 problems have no leetcode.cn slug, so including them
+    // would fire a batch of doomed GraphQL queries on every sync.
     const problems = await db.problem.findMany({
-      where: { isEnabled: true },
+      where: { isEnabled: true, source: "LEETCODE" },
       orderBy: { hot100Order: "asc" },
     });
     const statuses = await syncLeetCodeCnProblems({ cookie, problems, syncCode });

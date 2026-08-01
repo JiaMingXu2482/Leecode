@@ -2,7 +2,9 @@ import { getDb } from "@/lib/db";
 import { TOPIC_GROUPS } from "@/lib/topics";
 
 // Default per-day new-problem quota (overridable via settings / the assistant).
-export const NEW_PER_DAY = 4;
+// 2 while the focus is 牛客 ACM practice — these take longer than a Hot100
+// problem because of the I/O handling on top of the algorithm.
+export const NEW_PER_DAY = 2;
 
 // Categories whose new problems get scheduled first, one per category per day.
 // Applies until the user changes it (刷题计划 page or the plan assistant).

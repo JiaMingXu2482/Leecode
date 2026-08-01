@@ -35,7 +35,14 @@ enum SyncStatus {
 
 model Problem {
   id                     String               @id @default(cuid())
+  // Globally unique across sources: LeetCode keeps its own number, 牛客 HJ n is
+  // stored as 10000+n. Keeping one unique int means every existing lookup
+  // (assistant tools, scheduler, plan items) works unchanged.
   frontendId             Int                  @unique
+  // LEETCODE | NOWCODER — which judge this problem lives on.
+  source                 String               @default("LEETCODE")
+  // What the UI shows: "42" for LeetCode, "HJ14" for 牛客.
+  displayId              String               @default("")
   title                  String
   titleCn                String
   slug                   String               @unique
@@ -195,20 +202,6 @@ model LeetCodeSyncState {
   checkedCount      Int        @default(0)
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
-}
-
-// Personal ACM/机考 knowledge base: reusable code templates, I/O skeletons and
-// pitfall notes. Separate from StudySession notes (which are per-problem logs) —
-// this is a searchable reference the user copies from during a contest.
-model AcmNote {
-  id        String   @id @default(cuid())
-  title     String
-  category  String   @default("输入输出")
-  content   String   @default("")
-  isPinned  Boolean  @default(false)
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }
 
 model AppSettings {

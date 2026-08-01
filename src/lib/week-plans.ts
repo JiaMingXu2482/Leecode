@@ -4,8 +4,14 @@ import { orderDailyNewPicks } from "@/lib/new-problem-picker";
 import { getPlanSettings } from "@/lib/settings";
 
 // "New" = not yet studied in this app; a historical LeetCode AC doesn't count.
+//
+// New problems are drawn from 牛客 only: Hot100 is finished, and the user wants
+// LeetCode to contribute reviews (driven by the forgetting curve) rather than
+// new work. Reviews are NOT filtered by source — both judges' due problems come
+// back on schedule.
 export const NEW_POOL_WHERE = {
   isEnabled: true,
+  source: "NOWCODER",
   reviewSchedule: null,
   sessions: { none: {} },
 } as const;

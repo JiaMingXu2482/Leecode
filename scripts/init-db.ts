@@ -139,16 +139,8 @@ const statements = [
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
   )`,
-  `CREATE TABLE IF NOT EXISTS "AcmNote" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "title" TEXT NOT NULL,
-    "category" TEXT NOT NULL DEFAULT '输入输出',
-    "content" TEXT NOT NULL DEFAULT '',
-    "isPinned" BOOLEAN NOT NULL DEFAULT false,
-    "sortOrder" INTEGER NOT NULL DEFAULT 0,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL
-  )`,
+  // ACM 笔记页 was folded back into the problem library; drop its leftover table.
+  `DROP TABLE IF EXISTS "AcmNote"`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "Problem_frontendId_key" ON "Problem"("frontendId")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "Problem_slug_key" ON "Problem"("slug")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "ProblemProgress_problemId_key" ON "ProblemProgress"("problemId")`,
@@ -177,6 +169,8 @@ const optionalColumns = [
   `ALTER TABLE "LeetCodeSyncState" ADD COLUMN "lastCodeSyncError" TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE "AppSettings" ADD COLUMN "priorityCategories" TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE "AppSettings" ADD COLUMN "newPerDay" INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE "Problem" ADD COLUMN "source" TEXT NOT NULL DEFAULT 'LEETCODE'`,
+  `ALTER TABLE "Problem" ADD COLUMN "displayId" TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE "AppSettings" ADD COLUMN "assistantSoul" TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE "AppSettings" ADD COLUMN "assistantMemory" TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE "PlanItem" ADD COLUMN "carriedFromDate" DATETIME`,

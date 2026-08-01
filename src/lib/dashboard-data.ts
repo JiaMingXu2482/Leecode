@@ -2,18 +2,11 @@ import { redirect } from "next/navigation";
 import { addUtcDays, minutesBetween, nextNDays, startOfUtcDay, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { isAuthorizedServer } from "@/lib/auth";
-import { ensureAcmNotesSeeded, loadAcmNotes } from "@/lib/acm-notes";
+import { ensureNowcoderProblems } from "@/lib/nowcoder-import";
 import { getPlanSettings } from "@/lib/settings";
 import { ensureTodayPlan } from "@/lib/week-plans";
 
-export type DashboardView =
-  | "today"
-  | "weekly"
-  | "history"
-  | "reviews"
-  | "stats"
-  | "sync"
-  | "acm-notes";
+export type DashboardView = "today" | "weekly" | "history" | "reviews" | "stats" | "sync";
 
 // Loads ONLY what the given view renders. All views share one return shape (so
 // the client component types stay unchanged), but unused heavy sections come
@@ -29,7 +22,6 @@ export async function getDashboardData(view: DashboardView = "today") {
   const wantHistory = view === "history";
   const wantProblems = wantWeekly || view === "reviews" || view === "stats";
   const wantRecent = wantToday || wantWeekly || wantHistory;
-  const wantAcmNotes = view === "acm-notes";
 
   const db = getDb();
   const today = startOfUtcDay(new Date());
@@ -38,18 +30,26 @@ export async function getDashboardData(view: DashboardView = "today") {
   const weekStart = addUtcDays(today, -((weekdayIndex(today) + 6) % 7));
   const weekDays = Array.from({ length: 7 }, (_, index) => addUtcDays(weekStart, index));
 
+  // Make sure the 牛客 HJ problem set exists before anything reads the pool —
+  // scheduling, the topic tree and the problem list all depend on it.
+  await ensureNowcoderProblems();
+
+  // Progress is tracked per source: Hot100 and 牛客 are separate journeys, so a
+  // combined "x/203" would hide that one of them is already finished.
+  const [ncTotal, ncDone] = await Promise.all([
+    db.problem.count({ where: { isEnabled: true, source: "NOWCODER" } }),
+    db.problem.count({
+      where: { isEnabled: true, source: "NOWCODER", sessions: { some: {} } },
+    }),
+  ]);
+
   // Self-heal today's plan (due reviews + the daily new-problem quota) before
   // reading, so a fresh day never shows a stale or empty task list.
   if (wantToday || wantWeekly) {
     await ensureTodayPlan(today);
   }
-  // First visit to the notes page gets the starter knowledge base.
-  if (wantAcmNotes) {
-    await ensureAcmNotesSeeded();
-  }
 
   const planSettings = await getPlanSettings();
-  const acmNotes = wantAcmNotes ? await loadAcmNotes() : [];
   const [
     todayPlan,
     availabilityRows,
@@ -105,8 +105,10 @@ export async function getDashboardData(view: DashboardView = "today") {
         update: {},
         create: { id: "leetcode-cn" },
       }),
-      db.problem.count({ where: { isEnabled: true } }),
-      db.problemProgress.count({ where: { isAccepted: true } }),
+      db.problem.count({ where: { isEnabled: true, source: "LEETCODE" } }),
+      db.problemProgress.count({
+        where: { isAccepted: true, problem: { source: "LEETCODE" } },
+      }),
       db.reviewSchedule.count({ where: { nextReviewDate: { lte: today } } }),
       db.studySession.count(),
       wantProblems
@@ -456,7 +458,6 @@ export async function getDashboardData(view: DashboardView = "today") {
     weekHistory,
     todayExtra,
     planSettings,
-    acmNotes,
     metrics: {
       weekNew,
       monthNew,
@@ -475,6 +476,8 @@ export async function getDashboardData(view: DashboardView = "today") {
     problems: problems.map((problem) => ({
       id: problem.id,
       frontendId: problem.frontendId,
+      source: problem.source,
+      displayId: problem.displayId || String(problem.frontendId),
       titleCn: problem.titleCn,
       slug: wantWeekly ? "" : problem.slug,
       difficulty: problem.difficulty,
@@ -513,6 +516,9 @@ export async function getDashboardData(view: DashboardView = "today") {
       accepted,
       dueReviews,
       sessions,
+      // 牛客 HJ progress, tracked separately from Hot100.
+      nowcoderTotal: ncTotal,
+      nowcoderDone: ncDone,
       byTag: [...tagMap.values()].sort((a, b) => b.total - a.total).slice(0, 8),
     },
   };
