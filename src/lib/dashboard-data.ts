@@ -168,9 +168,9 @@ export async function getDashboardData(view: DashboardView = "today") {
   // queries instead of awaiting each in sequence — this page is force-dynamic,
   // so getDashboardData runs on every load and every navigation.
   const todayProblemIds = todayPlan?.items.map((item) => item.problemId) ?? [];
-  // Rolling ~2-month window. 18 weeks left most of the chart empty (studying
-  // only started late June), so it now spans 9 weeks — today that begins 6/1.
-  const HEAT_WEEKS = 9;
+  // Rolling 6-month window. Cells flex to the container width, so more weeks
+  // just means smaller squares — never a horizontal scrollbar.
+  const HEAT_WEEKS = 26;
   const heatStart = addUtcDays(weekStart, -7 * (HEAT_WEEKS - 1));
   const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
   const monthEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1));

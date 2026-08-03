@@ -82,7 +82,7 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.14.1";
+const APP_VERSION = "v1.14.2";
 const APP_UPDATED = "2026-07-08";
 
 // Monaco (the engine behind LeetCode's code editor) is heavy, so it loads on
@@ -1779,23 +1779,32 @@ function TodayOverview({ data }: { data: DashboardData }) {
         <OverviewStat label="累计完成" value={`${mastered}`} />
       </div>
       <div className="mt-5 border-t border-line pt-5">
-        <div className="mx-auto w-max max-w-full overflow-x-auto overflow-y-hidden">
-          <div className="flex gap-1.5">
+        {/* Columns share the available width instead of being fixed-size, so a
+            longer window shrinks the squares rather than adding a scrollbar.
+            The max-width keeps cells from ballooning on a wide screen. */}
+        <div className="mx-auto w-full max-w-[680px]">
+          <div
+            className="grid gap-1"
+            style={{ gridTemplateColumns: `repeat(${heatmap.weeks}, minmax(0, 1fr))` }}
+          >
             {columns.map((col, index) => (
-              <div key={index} className="flex flex-col gap-1.5">
+              <div key={index} className="flex flex-col gap-1">
                 {col.map((cell) => (
                   <div
                     key={cell.key}
                     title={cell.future ? undefined : `${cell.month}月${cell.day}日 · ${cell.count} 题`}
-                    className={`h-5 w-5 rounded-sm ${heatLevelClass(cell.count, cell.future)}`}
+                    className={`aspect-square w-full rounded-sm ${heatLevelClass(cell.count, cell.future)}`}
                   />
                 ))}
               </div>
             ))}
           </div>
-          <div className="mt-1.5 flex gap-1.5">
+          <div
+            className="mt-1.5 grid gap-1"
+            style={{ gridTemplateColumns: `repeat(${heatmap.weeks}, minmax(0, 1fr))` }}
+          >
             {monthLabels.map((label, index) => (
-              <div key={index} className="w-5 whitespace-nowrap text-[10px] leading-none text-fg-subtle">
+              <div key={index} className="whitespace-nowrap text-[10px] leading-none text-fg-subtle">
                 {label}
               </div>
             ))}
