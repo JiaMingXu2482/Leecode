@@ -168,10 +168,14 @@ export async function getDashboardData(view: DashboardView = "today") {
   // queries instead of awaiting each in sequence — this page is force-dynamic,
   // so getDashboardData runs on every load and every navigation.
   const todayProblemIds = todayPlan?.items.map((item) => item.problemId) ?? [];
-  // Rolling 6-month window. Cells flex to the container width, so more weeks
-  // just means smaller squares — never a horizontal scrollbar.
-  const HEAT_WEEKS = 26;
-  const heatStart = addUtcDays(weekStart, -7 * (HEAT_WEEKS - 1));
+  // Study-year view: anchored at June 1 (when practice started) and running to
+  // the end of December, so the months ahead show as empty squares waiting to
+  // be filled rather than scrolling past history.
+  const heatAnchor = new Date(Date.UTC(today.getUTCFullYear(), 5, 1));
+  const heatStart = addUtcDays(heatAnchor, -((weekdayIndex(heatAnchor) + 6) % 7));
+  const heatEnd = new Date(Date.UTC(today.getUTCFullYear(), 11, 31));
+  const HEAT_WEEKS =
+    Math.floor((heatEnd.getTime() - heatStart.getTime()) / (7 * 86_400_000)) + 1;
   const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
   const monthEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1));
   const [latestSessions, todayDoneSessions, recentSessions, weekProgressPlans, monthPlans, heatSessions] =

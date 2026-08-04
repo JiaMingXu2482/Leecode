@@ -45,4 +45,24 @@ describe("orderDailyNewPicks", () => {
     const pool = [candidate("hash-1", 1), candidate("bt-46", 46)];
     expect(orderDailyNewPicks(pool, [], 2).map((p) => p.id)).toEqual(["hash-1", "bt-46"]);
   });
+
+  it("spreads a day across different categories instead of taking the first N", () => {
+    // Pool order is 哈希, 哈希, 哈希, 回溯, 动态规划 — plain order would give
+    // three 哈希 problems in a row.
+    const pool = [
+      candidate("hash-1", 1),
+      candidate("hash-49", 49),
+      candidate("hash-128", 128),
+      candidate("bt-46", 46),
+      candidate("dp-70", 70),
+    ];
+    const picks = orderDailyNewPicks(pool, [], 3);
+    expect(picks.map((p) => p.id)).toEqual(["hash-1", "bt-46", "dp-70"]);
+  });
+
+  it("falls back to repeating a category once distinct ones run out", () => {
+    const pool = [candidate("hash-1", 1), candidate("hash-49", 49), candidate("hash-128", 128)];
+    const picks = orderDailyNewPicks(pool, [], 3);
+    expect(picks.map((p) => p.id)).toEqual(["hash-1", "hash-49", "hash-128"]);
+  });
 });

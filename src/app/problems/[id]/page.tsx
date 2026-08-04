@@ -46,7 +46,9 @@ export default async function ProblemDetailPage({
         <div className="mt-6 rounded-lg border border-line p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="font-mono text-xs text-fg-subtle">#{problem.frontendId}</p>
+              <p className="font-mono text-xs text-fg-subtle">
+                {problem.displayId || `#${problem.frontendId}`}
+              </p>
               <h1 className="mt-1 text-2xl font-semibold">{problem.titleCn}</h1>
               <p className="mt-2 text-sm text-fg-subtle">{problem.tags}</p>
             </div>
@@ -55,7 +57,7 @@ export default async function ProblemDetailPage({
               target="_blank"
               className="rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white"
             >
-              打开力扣
+              {problem.source === "NOWCODER" ? "打开牛客" : "打开力扣"}
             </a>
           </div>
           <dl className="mt-6 grid gap-4 sm:grid-cols-2">
