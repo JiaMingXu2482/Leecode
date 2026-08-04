@@ -1,4 +1,4 @@
-import { PlanItemKind } from "@prisma/client";
+import { Difficulty, PlanItemKind } from "@prisma/client";
 import { addUtcDays, fromDateKey, startOfUtcDay, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { orderDailyNewPicks } from "@/lib/new-problem-picker";
@@ -56,7 +56,7 @@ export async function regenerateWeek() {
           estimatedMinutes: true,
           kind: true,
           carriedFromDate: true,
-          problem: { select: { frontendId: true } },
+          problem: { select: { frontendId: true, difficulty: true } },
         },
       },
     },
@@ -68,7 +68,7 @@ export async function regenerateWeek() {
       estimatedMinutes: number;
       kind: PlanItemKind;
       carriedFromDate: Date | null;
-      problem: { frontendId: number };
+      problem: { frontendId: number; difficulty: Difficulty };
     }[]
   >();
   // A finished new problem still counts against that day's new-problem quota, so
@@ -162,10 +162,14 @@ export async function regenerateWeek() {
       pool.filter((problem) => !assigned.has(problem.id)),
       settings.priorityCategories,
       remainingQuota,
-      // Completed problems stay on the day, so their categories are taken.
+      // Completed problems stay on the day, so their categories are taken and
+      // an already-done 简单 counts against the day's easy allowance.
       (keptByDate.get(key) ?? [])
         .filter((item) => item.kind === "NEW")
         .map((item) => topicForFrontendId(item.problem.frontendId)),
+      (keptByDate.get(key) ?? []).filter(
+        (item) => item.kind === "NEW" && item.problem.difficulty === "EASY",
+      ).length,
     );
     for (const problem of picks) {
       assigned.add(problem.id);

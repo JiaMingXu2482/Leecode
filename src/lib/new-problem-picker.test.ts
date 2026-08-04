@@ -3,8 +3,10 @@ import { orderDailyNewPicks } from "./new-problem-picker";
 
 // Category membership (from TOPIC_GROUPS): 回溯 → 46/78/17…, 贪心算法 → 121/55…,
 // 动态规划 → 70/118…, 哈希 → 1/49/128, 双指针 → 283…
-function candidate(id: string, frontendId: number) {
-  return { id, frontendId, estimatedNewMinutes: 40 };
+// Defaults to 中等 so the existing ordering tests aren't affected by the
+// difficulty preference — with a uniform difficulty, pool order still wins.
+function candidate(id: string, frontendId: number, difficulty = "MEDIUM") {
+  return { id, frontendId, estimatedNewMinutes: 40, difficulty };
 }
 
 const PRIORITY = ["回溯", "贪心算法", "动态规划"];
@@ -74,5 +76,54 @@ describe("orderDailyNewPicks", () => {
     const pool = [candidate("hash-1", 1), candidate("hash-49", 49), candidate("hash-128", 128)];
     const picks = orderDailyNewPicks(pool, [], 3);
     expect(picks.map((p) => p.id)).toEqual(["hash-1", "hash-49", "hash-128"]);
+  });
+
+  describe("难度约束", () => {
+    it("prefers 中等 over 简单 even when 简单 comes first in pool order", () => {
+      const pool = [
+        candidate("easy-1", 1, "EASY"), // 哈希，简单
+        candidate("med-46", 46, "MEDIUM"), // 回溯，中等
+      ];
+      expect(orderDailyNewPicks(pool, [], 1).map((p) => p.id)).toEqual(["med-46"]);
+    });
+
+    it("takes at most one 简单 per day", () => {
+      const pool = [
+        candidate("easy-1", 1, "EASY"), // 哈希
+        candidate("easy-46", 46, "EASY"), // 回溯
+        candidate("easy-70", 70, "EASY"), // 动态规划
+        candidate("med-283", 283, "MEDIUM"), // 双指针
+        candidate("med-20", 20, "MEDIUM"), // 栈
+      ];
+      const picks = orderDailyNewPicks(pool, [], 3);
+      const easies = picks.filter((p) => p.difficulty === "EASY");
+      expect(easies).toHaveLength(1);
+      // 两道中等先上，简单的只补一道
+      expect(picks.map((p) => p.difficulty)).toEqual(["MEDIUM", "MEDIUM", "EASY"]);
+    });
+
+    it("counts 简单 problems already on the day against the cap", () => {
+      const pool = [
+        candidate("easy-1", 1, "EASY"),
+        candidate("med-46", 46, "MEDIUM"),
+      ];
+      // 当天已经有一道简单题了，这次不该再排简单题
+      const picks = orderDailyNewPicks(pool, [], 1, [], 1);
+      expect(picks.map((p) => p.id)).toEqual(["med-46"]);
+    });
+
+    it("still fills the quota with 简单 when nothing else is left", () => {
+      const pool = [candidate("easy-1", 1, "EASY"), candidate("easy-46", 46, "EASY")];
+      // 配额优先于难度配比：宁可多排一道简单题，也不要少排
+      expect(orderDailyNewPicks(pool, [], 2)).toHaveLength(2);
+    });
+
+    it("prefers 中等 over 困难 too", () => {
+      const pool = [
+        candidate("hard-1", 1, "HARD"),
+        candidate("med-46", 46, "MEDIUM"),
+      ];
+      expect(orderDailyNewPicks(pool, [], 1).map((p) => p.id)).toEqual(["med-46"]);
+    });
   });
 });

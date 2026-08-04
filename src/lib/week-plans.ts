@@ -113,9 +113,10 @@ async function doEnsureTodayPlan(today: Date) {
             kind: true,
             sortOrder: true,
             carriedFromDate: true,
-            // frontendId lets us tell which categories today already covers, so
-            // a top-up batch doesn't repeat one.
-            problem: { select: { frontendId: true } },
+            // frontendId/difficulty let us tell which categories today already
+            // covers and how much of the easy quota is spent, so a top-up batch
+            // doesn't repeat a type or add a second 简单.
+            problem: { select: { frontendId: true, difficulty: true } },
           },
         },
       },
@@ -264,6 +265,9 @@ async function doEnsureTodayPlan(today: Date) {
       (todayPlanRow?.items ?? [])
         .filter((item) => item.kind === "NEW")
         .map((item) => topicForFrontendId(item.problem.frontendId)),
+      (todayPlanRow?.items ?? []).filter(
+        (item) => item.kind === "NEW" && item.problem.difficulty === "EASY",
+      ).length,
     );
     for (const problem of picks) {
       planned.add(problem.id);
@@ -315,7 +319,7 @@ export async function topUpNewProblems(today: Date) {
           select: {
             kind: true,
             carriedFromDate: true,
-            problem: { select: { frontendId: true } },
+            problem: { select: { frontendId: true, difficulty: true } },
           },
         },
       },
@@ -346,6 +350,7 @@ export async function topUpNewProblems(today: Date) {
       plan.items
         .filter((item) => item.kind === "NEW")
         .map((item) => topicForFrontendId(item.problem.frontendId)),
+      plan.items.filter((item) => item.kind === "NEW" && item.problem.difficulty === "EASY").length,
     );
     if (!picks.length) {
       return;
