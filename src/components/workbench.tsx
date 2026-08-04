@@ -82,7 +82,7 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.15.2";
+const APP_VERSION = "v1.15.3";
 const APP_UPDATED = "2026-07-08";
 
 // Monaco (the engine behind LeetCode's code editor) is heavy, so it loads on
@@ -1779,7 +1779,9 @@ function TodayOverview({ data }: { data: DashboardData }) {
         <OverviewStat label="累计完成" value={`${mastered}`} />
       </div>
       <div className="mt-5 border-t border-line pt-5">
-        <div className="mx-auto w-max max-w-full overflow-x-auto overflow-y-hidden">
+        {/* overflow-x-hidden, not auto: the last month label sticks a few px past
+            the grid and would otherwise raise a scrollbar for nothing. */}
+        <div className="mx-auto w-max max-w-full overflow-hidden">
           <div className="flex gap-1.5">
             {columns.map((col, index) => (
               <div key={index} className="flex flex-col gap-1.5">
