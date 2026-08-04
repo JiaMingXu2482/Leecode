@@ -60,6 +60,16 @@ describe("orderDailyNewPicks", () => {
     expect(picks.map((p) => p.id)).toEqual(["hash-1", "bt-46", "dp-70"]);
   });
 
+  it("avoids categories the day already covers when topping up in batches", () => {
+    const pool = [
+      candidate("hash-49", 49), // 哈希 — already on the day
+      candidate("bt-46", 46), // 回溯
+    ];
+    // The day already has a 哈希 problem, so the top-up should skip 哈希.
+    const picks = orderDailyNewPicks(pool, [], 1, ["哈希"]);
+    expect(picks.map((p) => p.id)).toEqual(["bt-46"]);
+  });
+
   it("falls back to repeating a category once distinct ones run out", () => {
     const pool = [candidate("hash-1", 1), candidate("hash-49", 49), candidate("hash-128", 128)];
     const picks = orderDailyNewPicks(pool, [], 3);

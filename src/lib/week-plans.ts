@@ -2,6 +2,7 @@ import { addUtcDays, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { orderDailyNewPicks } from "@/lib/new-problem-picker";
 import { getPlanSettings } from "@/lib/settings";
+import { topicForFrontendId } from "@/lib/topics";
 
 // "New" = not yet studied in this app; a historical LeetCode AC doesn't count.
 //
@@ -106,7 +107,18 @@ async function doEnsureTodayPlan(today: Date) {
     }),
     db.dailyPlan.findUnique({
       where: { date: today },
-      include: { items: { select: { kind: true, sortOrder: true, carriedFromDate: true } } },
+      include: {
+        items: {
+          select: {
+            kind: true,
+            sortOrder: true,
+            carriedFromDate: true,
+            // frontendId lets us tell which categories today already covers, so
+            // a top-up batch doesn't repeat one.
+            problem: { select: { frontendId: true } },
+          },
+        },
+      },
     }),
     // Unfinished NEW items from previous days — yesterday's (or a skipped
     // stretch's) debt. Oldest first: the day's carry allowance goes to the
@@ -249,6 +261,9 @@ async function doEnsureTodayPlan(today: Date) {
       pool.filter((problem) => !planned.has(problem.id)),
       settings.priorityCategories,
       newNeeded,
+      (todayPlanRow?.items ?? [])
+        .filter((item) => item.kind === "NEW")
+        .map((item) => topicForFrontendId(item.problem.frontendId)),
     );
     for (const problem of picks) {
       planned.add(problem.id);
@@ -295,7 +310,15 @@ export async function topUpNewProblems(today: Date) {
     getPlanSettings(),
     db.dailyPlan.findMany({
       where: { date: { gte: today, lt: weekEndExclusive } },
-      include: { items: { select: { kind: true, carriedFromDate: true } } },
+      include: {
+        items: {
+          select: {
+            kind: true,
+            carriedFromDate: true,
+            problem: { select: { frontendId: true } },
+          },
+        },
+      },
       orderBy: { date: "asc" },
     }),
     db.planItem.findMany({
@@ -320,6 +343,9 @@ export async function topUpNewProblems(today: Date) {
       pool.filter((problem) => !assigned.has(problem.id)),
       settings.priorityCategories,
       needed,
+      plan.items
+        .filter((item) => item.kind === "NEW")
+        .map((item) => topicForFrontendId(item.problem.frontendId)),
     );
     if (!picks.length) {
       return;

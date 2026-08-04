@@ -51,11 +51,26 @@ export async function regenerateWeek() {
     include: {
       items: {
         where: { isCompleted: true },
-        select: { problemId: true, estimatedMinutes: true, kind: true, carriedFromDate: true },
+        select: {
+          problemId: true,
+          estimatedMinutes: true,
+          kind: true,
+          carriedFromDate: true,
+          problem: { select: { frontendId: true } },
+        },
       },
     },
   });
-  const keptByDate = new Map<string, { problemId: string; estimatedMinutes: number }[]>();
+  const keptByDate = new Map<
+    string,
+    {
+      problemId: string;
+      estimatedMinutes: number;
+      kind: PlanItemKind;
+      carriedFromDate: Date | null;
+      problem: { frontendId: number };
+    }[]
+  >();
   // A finished new problem still counts against that day's new-problem quota, so
   // regeneration tops each day up to the quota instead of stacking a full fresh
   // quota on top of the completed ones (which is how days ballooned past N).
@@ -147,6 +162,10 @@ export async function regenerateWeek() {
       pool.filter((problem) => !assigned.has(problem.id)),
       settings.priorityCategories,
       remainingQuota,
+      // Completed problems stay on the day, so their categories are taken.
+      (keptByDate.get(key) ?? [])
+        .filter((item) => item.kind === "NEW")
+        .map((item) => topicForFrontendId(item.problem.frontendId)),
     );
     for (const problem of picks) {
       assigned.add(problem.id);

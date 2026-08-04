@@ -14,14 +14,18 @@ export type NewPickCandidate = {
 //   3. if distinct categories run out, backfill by plain pool order.
 // Category-internal order is always pool order, so problems still come in
 // ascending number within a type.
+// `alreadyUsedCategories` are the categories already on the target day — the
+// scheduler tops a day up in batches, so without this a later batch would
+// happily add a third 数组与排序 problem to a day that already has two.
 export function orderDailyNewPicks<T extends NewPickCandidate>(
   pool: T[],
   priorityCategories: string[],
   count: number,
+  alreadyUsedCategories: Iterable<string> = [],
 ): T[] {
   const picks: T[] = [];
   const used = new Set<string>();
-  const usedCategories = new Set<string>();
+  const usedCategories = new Set<string>(alreadyUsedCategories);
 
   const take = (candidate: T) => {
     used.add(candidate.id);
