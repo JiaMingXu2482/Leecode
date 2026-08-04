@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import {
+  NOWCODER_ID_BASE,
   NOWCODER_PROBLEMS,
   nowcoderFrontendId,
   nowcoderTopicForHj,
@@ -29,11 +30,23 @@ export async function ensureNowcoderProblems() {
     });
   }
 
-  // 2. Insert any 牛客 problems that aren't in the DB yet.
+  // 2. Keep stored tags in step with the code's classification — problems are
+  // only created once, so a later re-categorisation would otherwise never
+  // reach rows that already exist.
   const existing = await db.problem.findMany({
     where: { source: "NOWCODER" },
-    select: { frontendId: true },
+    select: { id: true, frontendId: true, tags: true },
   });
+  let retagged = 0;
+  for (const problem of existing) {
+    const want = nowcoderTopicForHj(problem.frontendId - NOWCODER_ID_BASE);
+    if (problem.tags !== want) {
+      await db.problem.update({ where: { id: problem.id }, data: { tags: want } });
+      retagged += 1;
+    }
+  }
+
+  // 3. Insert any 牛客 problems that aren't in the DB yet.
   const have = new Set(existing.map((p) => p.frontendId));
 
   const toCreate = NOWCODER_PROBLEMS.filter(([hj]) => !have.has(nowcoderFrontendId(hj))).map(
@@ -57,5 +70,5 @@ export async function ensureNowcoderProblems() {
   if (toCreate.length) {
     await db.problem.createMany({ data: toCreate });
   }
-  return { backfilled: legacy.length, created: toCreate.length };
+  return { backfilled: legacy.length, created: toCreate.length, retagged };
 }
