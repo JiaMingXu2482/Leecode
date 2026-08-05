@@ -57,7 +57,11 @@ export default async function ProblemDetailPage({
               target="_blank"
               className="rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white"
             >
-              {problem.source === "NOWCODER" ? "打开牛客" : "打开力扣"}
+              {problem.source === "NOWCODER"
+                ? "打开牛客"
+                : problem.source === "CODEFUN"
+                  ? "打开 CodeFun"
+                  : "打开力扣"}
             </a>
           </div>
           <dl className="mt-6 grid gap-4 sm:grid-cols-2">

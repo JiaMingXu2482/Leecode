@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { addUtcDays, minutesBetween, nextNDays, startOfUtcDay, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { isAuthorizedServer } from "@/lib/auth";
+import { ensureCodefunProblems } from "@/lib/codefun-import";
 import { ensureNowcoderProblems } from "@/lib/nowcoder-import";
 import { getPlanSettings } from "@/lib/settings";
 import { ensureTodayPlan } from "@/lib/week-plans";
@@ -33,13 +34,18 @@ export async function getDashboardData(view: DashboardView = "today") {
   // Make sure the 牛客 HJ problem set exists before anything reads the pool —
   // scheduling, the topic tree and the problem list all depend on it.
   await ensureNowcoderProblems();
+  await ensureCodefunProblems();
 
-  // Progress is tracked per source: Hot100 and 牛客 are separate journeys, so a
-  // combined "x/203" would hide that one of them is already finished.
-  const [ncTotal, ncDone] = await Promise.all([
+  // Progress is tracked per source: Hot100, 牛客 and the 速成题单 are separate
+  // journeys, so a combined total would hide that one of them is finished.
+  const [ncTotal, ncDone, cfTotal, cfDone] = await Promise.all([
     db.problem.count({ where: { isEnabled: true, source: "NOWCODER" } }),
     db.problem.count({
       where: { isEnabled: true, source: "NOWCODER", sessions: { some: {} } },
+    }),
+    db.problem.count({ where: { isEnabled: true, source: "CODEFUN" } }),
+    db.problem.count({
+      where: { isEnabled: true, source: "CODEFUN", sessions: { some: {} } },
     }),
   ]);
 
@@ -516,9 +522,11 @@ export async function getDashboardData(view: DashboardView = "today") {
       accepted,
       dueReviews,
       sessions,
-      // 牛客 HJ progress, tracked separately from Hot100.
+      // 牛客 HJ / 速成题单 progress, tracked separately from Hot100.
       nowcoderTotal: ncTotal,
       nowcoderDone: ncDone,
+      codefunTotal: cfTotal,
+      codefunDone: cfDone,
       byTag: [...tagMap.values()].sort((a, b) => b.total - a.total).slice(0, 8),
     },
   };

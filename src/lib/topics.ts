@@ -1,3 +1,4 @@
+import { CODEFUN_ID_BASE, codefunTopicForIndex, isCodefunFrontendId } from "./codefun-problems";
 import { isNowcoderFrontendId, NOWCODER_ID_BASE, nowcoderTopicForHj } from "./nowcoder-problems";
 
 // Official leetcode.cn top-100-liked study-plan categories, in plan order.
@@ -34,6 +35,9 @@ TOPIC_GROUPS.forEach((group, index) => {
 // Dispatches by source: a frontendId above NOWCODER_ID_BASE is a 牛客 HJ
 // problem and uses its own topic tree, everything below is Hot100.
 export function topicForFrontendId(frontendId: number): string {
+  if (isCodefunFrontendId(frontendId)) {
+    return codefunTopicForIndex(frontendId - CODEFUN_ID_BASE);
+  }
   if (isNowcoderFrontendId(frontendId)) {
     return nowcoderTopicForHj(frontendId - NOWCODER_ID_BASE);
   }

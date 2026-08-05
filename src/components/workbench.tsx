@@ -31,6 +31,11 @@ import { type DragEvent, useEffect, useRef, useState, useTransition } from "reac
 import type { DashboardData } from "@/lib/dashboard-data";
 import { noteToHtml, noteToPlainText } from "@/lib/notes";
 import { defaultReviewDays, type FeelingScore } from "@/lib/review-scheduler";
+import {
+  CODEFUN_ID_BASE,
+  CODEFUN_PROBLEMS,
+  CODEFUN_TOPIC_GROUPS,
+} from "@/lib/codefun-problems";
 import { NOWCODER_ID_BASE, NOWCODER_TOPIC_GROUPS } from "@/lib/nowcoder-problems";
 import { TOPIC_GROUPS } from "@/lib/topics";
 
@@ -59,10 +64,17 @@ const viewTitle: Record<ActiveView, { title: string; subtitle: string }> = {
   sync: { title: "力扣同步", subtitle: "粘贴 leetcode.cn Cookie，同步 AC 状态、提交画像和最近代码。" },
 };
 
-// Problem number as shown everywhere: "#42" for Hot100, "HJ14" for 牛客.
-// Derived from frontendId so plan items don't need to carry displayId around.
+// Problem number as shown everywhere: "#42" for Hot100, "HJ14" for 牛客,
+// "P2282" for the 速成题单. Derived from frontendId so plan items don't need to
+// carry displayId around.
 function problemLabel(frontendId: number) {
-  return frontendId > NOWCODER_ID_BASE ? `HJ${frontendId - NOWCODER_ID_BASE}` : `#${frontendId}`;
+  if (frontendId > CODEFUN_ID_BASE) {
+    return CODEFUN_PROBLEMS[frontendId - CODEFUN_ID_BASE - 1]?.[0] ?? `P${frontendId}`;
+  }
+  if (frontendId > NOWCODER_ID_BASE) {
+    return `HJ${frontendId - NOWCODER_ID_BASE}`;
+  }
+  return `#${frontendId}`;
 }
 
 const weekdayLabels = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
@@ -82,7 +94,7 @@ const kindTextClass = {
   REVIEW: "text-amber-600 dark:text-amber-400",
   RETEST: "text-purple-600 dark:text-purple-400",
 };
-const APP_VERSION = "v1.16.0";
+const APP_VERSION = "v1.17.0";
 const APP_UPDATED = "2026-07-08";
 
 // Monaco (the engine behind LeetCode's code editor) is heavy, so it loads on
@@ -1210,16 +1222,21 @@ function TopicsView({
 }) {
   const [showScore, setShowScore] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  // Which problem set is on screen. 牛客 is the default because Hot100 is done
-  // and new problems now come from there.
-  const [source, setSource] = useState<"NOWCODER" | "LEETCODE">("NOWCODER");
+  // Which problem set is on screen. 速成题单 is the default — it's what the
+  // daily plan is drawing from right now.
+  const [source, setSource] = useState<"CODEFUN" | "NOWCODER" | "LEETCODE">("CODEFUN");
 
   const byId = new Map(data.problems.map((problem) => [problem.frontendId, problem]));
-  const isNowcoder = source === "NOWCODER";
-  const topicTree = isNowcoder ? NOWCODER_TOPIC_GROUPS : TOPIC_GROUPS;
+  const topicTree =
+    source === "CODEFUN"
+      ? CODEFUN_TOPIC_GROUPS
+      : source === "NOWCODER"
+        ? NOWCODER_TOPIC_GROUPS
+        : TOPIC_GROUPS;
+  const idBase = source === "CODEFUN" ? CODEFUN_ID_BASE : source === "NOWCODER" ? NOWCODER_ID_BASE : 0;
   const groups = topicTree.map((group) => {
     const items = group.ids
-      .map((id) => byId.get(isNowcoder ? NOWCODER_ID_BASE + id : id))
+      .map((id) => byId.get(idBase + id))
       .filter((problem): problem is DashboardData["problems"][number] => Boolean(problem));
     const enabledCount = items.filter((problem) => problem.isEnabled !== false).length;
     return { name: group.name, items, enabledCount, total: items.length, allExcluded: items.length > 0 && enabledCount === 0 };
@@ -1235,6 +1252,7 @@ function TopicsView({
       {/* 题库切换 */}
       <div className="flex items-center gap-2">
         {([
+          ["CODEFUN", "速成题单", data.stats.codefunDone, data.stats.codefunTotal],
           ["NOWCODER", "牛客华为机试", data.stats.nowcoderDone, data.stats.nowcoderTotal],
           ["LEETCODE", "LeetCode Hot100", data.stats.accepted, data.stats.total],
         ] as const).map(([key, label, done, total]) => (
@@ -1257,9 +1275,11 @@ function TopicsView({
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-fg-subtle">
-          {isNowcoder
-            ? "牛客华为机试题库（HJ1–HJ108，ACM 模式）。每日新题从这里取；勾选「不刷」把题目或整类排除。"
-            : "Hot100 已刷完，现在只按遗忘曲线安排复习。勾选「不刷」把题目或整类排除出复习列表。"}
+          {source === "CODEFUN"
+            ? "塔子哥「一周速成题单」69 道高频真题，按分类顺序刷。每日新题优先从这里取，刷完自动接上牛客 HJ。"
+            : source === "NOWCODER"
+              ? "牛客华为机试题库（HJ1–HJ108，ACM 模式）。速成题单刷完后从这里继续。"
+              : "Hot100 已刷完，现在只按遗忘曲线安排复习。勾选「不刷」把题目或整类排除出复习列表。"}
         </p>
         <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
           <input type="checkbox" checked={showScore} onChange={(event) => setShowScore(event.target.checked)} />

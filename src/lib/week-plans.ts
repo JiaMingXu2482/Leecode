@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { addUtcDays, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { orderDailyNewPicks } from "@/lib/new-problem-picker";
@@ -12,10 +13,11 @@ import { topicForFrontendId } from "@/lib/topics";
 // back on schedule.
 export const NEW_POOL_WHERE = {
   isEnabled: true,
-  source: "NOWCODER",
+  // 速成题单(CODEFUN)优先，刷完回落到牛客 HJ —— 优先级在 orderDailyNewPicks 里。
+  source: { in: ["CODEFUN", "NOWCODER"] },
   reviewSchedule: null,
   sessions: { none: {} },
-} as const;
+} satisfies Prisma.ProblemWhereInput;
 
 // How far back the carry-over sweep looks for unfinished NEW items. Debt older
 // than this is stale (its problems are still in the new pool and get re-picked

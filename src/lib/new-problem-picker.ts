@@ -5,6 +5,7 @@ export type NewPickCandidate = {
   frontendId: number;
   estimatedNewMinutes: number;
   difficulty: string;
+  source: string;
 };
 
 // 每天最多排这么多道简单题，其余名额留给中等题。
@@ -38,6 +39,14 @@ export function orderDailyNewPicks<T extends NewPickCandidate>(
   alreadyUsedCategories: Iterable<string> = [],
   alreadyEasyCount = 0,
 ): T[] {
+  // 速成题单优先，且严格按题单顺序刷。作者把 69 道题按算法分类编排好了
+  // （动态规划 → 模拟 → 贪心 → …），打乱顺序、跳着挑难度都会破坏这个编排，
+  // 所以这条路径不做分类分散、也不限制简单题数量。刷完自动回落到牛客 HJ。
+  const codefun = pool.filter((candidate) => candidate.source === "CODEFUN");
+  if (codefun.length) {
+    return codefun.slice(0, count);
+  }
+
   const picks: T[] = [];
   const used = new Set<string>();
   const usedCategories = new Set<string>(alreadyUsedCategories);

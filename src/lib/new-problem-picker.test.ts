@@ -5,8 +5,8 @@ import { orderDailyNewPicks } from "./new-problem-picker";
 // 动态规划 → 70/118…, 哈希 → 1/49/128, 双指针 → 283…
 // Defaults to 中等 so the existing ordering tests aren't affected by the
 // difficulty preference — with a uniform difficulty, pool order still wins.
-function candidate(id: string, frontendId: number, difficulty = "MEDIUM") {
-  return { id, frontendId, estimatedNewMinutes: 40, difficulty };
+function candidate(id: string, frontendId: number, difficulty = "MEDIUM", source = "NOWCODER") {
+  return { id, frontendId, estimatedNewMinutes: 40, difficulty, source };
 }
 
 const PRIORITY = ["回溯", "贪心算法", "动态规划"];
@@ -115,6 +115,26 @@ describe("orderDailyNewPicks", () => {
     it("still fills the quota with 简单 when nothing else is left", () => {
       const pool = [candidate("easy-1", 1, "EASY"), candidate("easy-46", 46, "EASY")];
       // 配额优先于难度配比：宁可多排一道简单题，也不要少排
+      expect(orderDailyNewPicks(pool, [], 2)).toHaveLength(2);
+    });
+
+    it("速成题单优先，且按题单顺序、不受难度限制", () => {
+      const pool = [
+        candidate("hj-1", 10001, "MEDIUM", "NOWCODER"),
+        candidate("cf-1", 20001, "EASY", "CODEFUN"),
+        candidate("cf-2", 20002, "EASY", "CODEFUN"),
+        candidate("cf-3", 20003, "HARD", "CODEFUN"),
+      ];
+      const picks = orderDailyNewPicks(pool, PRIORITY, 3);
+      // 顺序照抄题单，两道简单题也照排（放开了每天 1 道简单的限制）
+      expect(picks.map((p) => p.id)).toEqual(["cf-1", "cf-2", "cf-3"]);
+    });
+
+    it("速成题单刷完后回落到牛客", () => {
+      const pool = [
+        candidate("hj-1", 10001, "MEDIUM", "NOWCODER"),
+        candidate("hj-2", 10002, "MEDIUM", "NOWCODER"),
+      ];
       expect(orderDailyNewPicks(pool, [], 2)).toHaveLength(2);
     });
 
