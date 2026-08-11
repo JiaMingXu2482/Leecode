@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { addUtcDays, isoWeekday, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { orderDailyNewPicks } from "@/lib/new-problem-picker";
+import { NOWCODER_ID_BASE } from "@/lib/nowcoder-problems";
 import { orderTopicMatchedReviews } from "@/lib/review-picker";
 import { getPlanSettings } from "@/lib/settings";
 import { topicForFrontendId } from "@/lib/topics";
@@ -32,6 +33,11 @@ const CARRY_WINDOW_DAYS = 14;
 // the overflow trickles into the following days).
 export const CARRY_PER_DAY = 2;
 export const MAX_REVIEWS_PER_DAY = 10;
+
+// 考点匹配模式下，牛客/速成题单的到期复习每天最多这么多道。刚集中刷完一批 ACM
+// 题时它们会同时到期，不设上限就会把当天的时间预算吃光，Hot100 一道也排不进来
+// —— 而用户开启这个模式的目的正是补 Hot100。曲线模式不受这条限制。
+export const ACM_REVIEWS_PER_DAY = 2;
 
 // Deletes plan items and gives their estimated minutes back to the owning
 // daily plans in the same transaction — every deletion path must go through
@@ -176,13 +182,20 @@ async function doEnsureTodayPlan(today: Date) {
   // 考点匹配模式下，Hot100 不再按到期日自动补课 —— 它在「这天第一次被填充」时
   // 按当天新题的考点一次性配好（见下面的 topic fill），之后只有真正到期的
   // 牛客/速成题单复习会继续涓流进来。这样用户手动删掉的 Hot100 不会被塞回来。
-  const curveSchedules =
+  const pendingCurve = (
     settings.reviewMode === "TOPIC"
       ? dueSchedules.filter((schedule) => schedule.problem.source !== "LEETCODE")
-      : dueSchedules;
-  const missingReviews = curveSchedules
-    .filter((schedule) => !planned.has(schedule.problemId))
-    .slice(0, reviewAllowance);
+      : dueSchedules
+  ).filter((schedule) => !planned.has(schedule.problemId));
+  // 考点匹配模式下给 ACM 复习留个上限，剩下的预算才轮得到 Hot100。
+  const acmAlreadyToday = (todayPlanRow?.items ?? []).filter(
+    (item) => item.kind !== "NEW" && item.problem.frontendId > NOWCODER_ID_BASE,
+  ).length;
+  const curveAllowance =
+    settings.reviewMode === "TOPIC"
+      ? Math.min(reviewAllowance, Math.max(0, ACM_REVIEWS_PER_DAY - acmAlreadyToday))
+      : reviewAllowance;
+  const missingReviews = pendingCurve.slice(0, curveAllowance);
   // Manual drags are the last word: once today's new quota has been auto-filled
   // once, we never auto-add new/carried problems to it again. So if the user
   // drags today's new problems to later days and reopens today, the system
