@@ -175,6 +175,8 @@ const optionalColumns = [
   `ALTER TABLE "AppSettings" ADD COLUMN "assistantMemory" TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE "PlanItem" ADD COLUMN "carriedFromDate" DATETIME`,
   `ALTER TABLE "DailyPlan" ADD COLUMN "newFilledAt" DATETIME`,
+  `ALTER TABLE "AppSettings" ADD COLUMN "restWeekdays" TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE "AppSettings" ADD COLUMN "reviewMode" TEXT NOT NULL DEFAULT 'CURVE'`,
 ];
 
 async function main() {

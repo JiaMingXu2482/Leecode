@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
-import { addUtcDays, toDateKey, weekdayIndex } from "@/lib/dates";
+import { addUtcDays, isoWeekday, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { orderDailyNewPicks } from "@/lib/new-problem-picker";
+import { orderTopicMatchedReviews } from "@/lib/review-picker";
 import { getPlanSettings } from "@/lib/settings";
 import { topicForFrontendId } from "@/lib/topics";
 
@@ -104,7 +105,7 @@ async function doEnsureTodayPlan(today: Date) {
     }),
     db.reviewSchedule.findMany({
       where: { nextReviewDate: { lt: tomorrow }, problem: { isEnabled: true } },
-      include: { problem: { select: { estimatedReviewMinutes: true } } },
+      include: { problem: { select: { source: true, estimatedReviewMinutes: true } } },
       orderBy: { nextReviewDate: "asc" },
     }),
     db.dailyPlan.findUnique({
@@ -115,6 +116,9 @@ async function doEnsureTodayPlan(today: Date) {
             kind: true,
             sortOrder: true,
             carriedFromDate: true,
+            // Minutes already booked today, so the review top-up knows how much
+            // of the day's time budget is left.
+            estimatedMinutes: true,
             // frontendId/difficulty let us tell which categories today already
             // covers and how much of the easy quota is spent, so a top-up batch
             // doesn't repeat a type or add a second 简单.
@@ -140,6 +144,7 @@ async function doEnsureTodayPlan(today: Date) {
         dailyPlan: { select: { id: true, date: true } },
         problem: {
           select: {
+            frontendId: true,
             isEnabled: true,
             reviewSchedule: { select: { id: true } },
             sessions: { select: { id: true }, take: 1 },
@@ -149,6 +154,11 @@ async function doEnsureTodayPlan(today: Date) {
       orderBy: [{ dailyPlan: { date: "asc" } }, { sortOrder: "asc" }],
     }),
   ]);
+
+  // 休息日不排题：既不补复习也不补新题，欠的债留到下一个工作日。
+  if (settings.restWeekdays.includes(isoWeekday(today))) {
+    return;
+  }
 
   const planned = new Set(weekItems.map((row) => row.problemId));
   // Problems already planned today or later — debt for these is already
@@ -163,7 +173,14 @@ async function doEnsureTodayPlan(today: Date) {
   // due — tomorrow's run picks them up, and so on (trickle, not a landslide).
   const todayReviewCount = todayPlanRow?.items.filter((item) => item.kind !== "NEW").length ?? 0;
   const reviewAllowance = Math.max(0, MAX_REVIEWS_PER_DAY - todayReviewCount);
-  const missingReviews = dueSchedules
+  // 考点匹配模式下，Hot100 不再按到期日自动补课 —— 它在「这天第一次被填充」时
+  // 按当天新题的考点一次性配好（见下面的 topic fill），之后只有真正到期的
+  // 牛客/速成题单复习会继续涓流进来。这样用户手动删掉的 Hot100 不会被塞回来。
+  const curveSchedules =
+    settings.reviewMode === "TOPIC"
+      ? dueSchedules.filter((schedule) => schedule.problem.source !== "LEETCODE")
+      : dueSchedules;
+  const missingReviews = curveSchedules
     .filter((schedule) => !planned.has(schedule.problemId))
     .slice(0, reviewAllowance);
   // Manual drags are the last word: once today's new quota has been auto-filled
@@ -193,6 +210,10 @@ async function doEnsureTodayPlan(today: Date) {
     }));
   let sortOrder = (todayPlanRow?.items ?? []).reduce((max, item) => Math.max(max, item.sortOrder), 0);
   let addedMinutes = 0;
+  // 当天所有新题（已有的 + 顺延来的 + 待会儿新排的）的考点，用来给 Hot100 配复习。
+  const todayNewTopics = (todayPlanRow?.items ?? [])
+    .filter((item) => item.kind === "NEW")
+    .map((item) => topicForFrontendId(item.problem.frontendId));
 
   for (const schedule of missingReviews) {
     sortOrder += 1;
@@ -253,6 +274,7 @@ async function doEnsureTodayPlan(today: Date) {
     ]);
     plannedTodayOnward.add(item.problemId);
     planned.add(item.problemId);
+    todayNewTopics.push(topicForFrontendId(item.problem.frontendId));
   }
 
   if (newNeeded > 0) {
@@ -275,6 +297,7 @@ async function doEnsureTodayPlan(today: Date) {
       planned.add(problem.id);
       sortOrder += 1;
       addedMinutes += problem.estimatedNewMinutes;
+      todayNewTopics.push(topicForFrontendId(problem.frontendId));
       await db.planItem.create({
         data: {
           dailyPlanId: plan.id,
@@ -284,6 +307,65 @@ async function doEnsureTodayPlan(today: Date) {
           sortOrder,
         },
       });
+    }
+  }
+
+  // 考点匹配的 Hot100 复习：只在这天第一次被填充时配一次，按当天新题的考点挑，
+  // 填到当天的时间预算用完为止（新题先占额度，复习吃剩下的时间）。
+  if (shouldFillNew && settings.reviewMode === "TOPIC") {
+    const usedMinutes =
+      (todayPlanRow?.items ?? []).reduce((sum, item) => sum + item.estimatedMinutes, 0) + addedMinutes;
+    let budget = settings.dailyMinutes - usedMinutes;
+    const slots = reviewAllowance - missingReviews.length;
+    if (budget > 0 && slots > 0) {
+      const [leetcodeSchedules, feelingStats] = await Promise.all([
+        db.reviewSchedule.findMany({
+          where: { problem: { isEnabled: true, source: "LEETCODE" } },
+          include: { problem: { select: { frontendId: true, estimatedReviewMinutes: true } } },
+        }),
+        db.studySession.groupBy({
+          by: ["problemId"],
+          where: { feelingScore: { not: null } },
+          _avg: { feelingScore: true },
+        }),
+      ]);
+      const avgFeelingByProblem = new Map(
+        feelingStats.map((stat) => [stat.problemId, stat._avg.feelingScore]),
+      );
+      const stageByProblem = new Map(
+        leetcodeSchedules.map((schedule) => [schedule.problemId, schedule.stage]),
+      );
+      const picks = orderTopicMatchedReviews(
+        leetcodeSchedules
+          .filter((schedule) => !planned.has(schedule.problemId))
+          .map((schedule) => ({
+            problemId: schedule.problemId,
+            frontendId: schedule.problem.frontendId,
+            estimatedReviewMinutes: schedule.problem.estimatedReviewMinutes,
+            nextReviewDate: schedule.nextReviewDate,
+            avgFeelingScore: avgFeelingByProblem.get(schedule.problemId) ?? null,
+          })),
+        todayNewTopics,
+        slots,
+      );
+      for (const pick of picks) {
+        if (budget < pick.estimatedReviewMinutes) {
+          continue;
+        }
+        budget -= pick.estimatedReviewMinutes;
+        planned.add(pick.problemId);
+        sortOrder += 1;
+        addedMinutes += pick.estimatedReviewMinutes;
+        await db.planItem.create({
+          data: {
+            dailyPlanId: plan.id,
+            problemId: pick.problemId,
+            kind: stageByProblem.get(pick.problemId) === 0 ? "RETEST" : "REVIEW",
+            estimatedMinutes: pick.estimatedReviewMinutes,
+            sortOrder,
+          },
+        });
+      }
     }
   }
 
@@ -339,6 +421,9 @@ export async function topUpNewProblems(today: Date) {
 
   const assigned = new Set(weekItems.map((row) => row.problemId));
   for (const plan of plans) {
+    if (settings.restWeekdays.includes(isoWeekday(plan.date))) {
+      continue;
+    }
     // Carried debt stacks on top of the quota; only own picks count against it.
     const newCount = plan.items.filter((item) => item.kind === "NEW" && !item.carriedFromDate).length;
     const needed = Math.max(0, settings.newPerDay - newCount);

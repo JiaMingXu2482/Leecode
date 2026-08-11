@@ -214,6 +214,10 @@ model AppSettings {
   priorityCategories  String    @default("")
   // Per-day new-problem quota; 0 = use the code default (NEW_PER_DAY).
   newPerDay           Int       @default(0)
+  // Rest days that get no plan at all: ISO weekdays, comma separated ("7" = 周日).
+  restWeekdays        String    @default("")
+  // CURVE = 复习按艾宾浩斯到期日；TOPIC = Hot100 复习按当天新题的考点匹配。
+  reviewMode          String    @default("CURVE")
   // Plan-assistant persona/behavior contract ("" = built-in default) and its
   // accumulated long-term memory of user preferences, one "- fact" per line.
   assistantSoul       String    @default("")

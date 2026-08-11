@@ -9,8 +9,10 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(await getPlanSettings());
 }
 
-// Update plan settings (priority categories / per-day new-problem quota).
-// Takes effect for future scheduling; hit 重排本周 to apply to this week.
+// Update plan settings: priority categories, per-day new-problem quota, the
+// daily time budget (which is what decides how many reviews fit), rest days and
+// the review-selection mode. Takes effect for future scheduling; hit 重排本周
+// to apply it to this week.
 export async function POST(request: NextRequest) {
   if (!isAuthorizedRequest(request)) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
@@ -19,8 +21,11 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as {
     priorityCategories?: unknown;
     newPerDay?: unknown;
+    dailyMinutes?: unknown;
+    restWeekdays?: unknown;
+    reviewMode?: unknown;
   };
-  const update: { priorityCategories?: string[]; newPerDay?: number } = {};
+  const update: Parameters<typeof savePlanSettings>[0] = {};
 
   if (body.priorityCategories !== undefined) {
     const categories = sanitizeCategories(body.priorityCategories);
@@ -34,6 +39,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "newPerDay 必须是 1-10 的数字" }, { status: 400 });
     }
     update.newPerDay = body.newPerDay;
+  }
+  if (body.dailyMinutes !== undefined) {
+    if (typeof body.dailyMinutes !== "number" || body.dailyMinutes < 30 || body.dailyMinutes > 720) {
+      return NextResponse.json({ error: "dailyMinutes 必须是 30-720 的数字（分钟）" }, { status: 400 });
+    }
+    update.dailyMinutes = body.dailyMinutes;
+  }
+  if (body.restWeekdays !== undefined) {
+    if (
+      !Array.isArray(body.restWeekdays) ||
+      body.restWeekdays.some((day) => typeof day !== "number" || day < 1 || day > 7)
+    ) {
+      return NextResponse.json({ error: "restWeekdays 必须是 1-7 的数字数组（1=周一，7=周日）" }, { status: 400 });
+    }
+    update.restWeekdays = body.restWeekdays as number[];
+  }
+  if (body.reviewMode !== undefined) {
+    if (body.reviewMode !== "CURVE" && body.reviewMode !== "TOPIC") {
+      return NextResponse.json({ error: "reviewMode 只能是 CURVE 或 TOPIC" }, { status: 400 });
+    }
+    update.reviewMode = body.reviewMode;
   }
 
   await savePlanSettings(update);

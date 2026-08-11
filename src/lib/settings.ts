@@ -9,10 +9,38 @@ export const NEW_PER_DAY = 4;
 // Applies until the user changes it (刷题计划 page or the plan assistant).
 export const DEFAULT_PRIORITY_CATEGORIES = ["回溯", "贪心算法", "动态规划"];
 
+// 每天的刷题时间预算（分钟）。新题先占额度，剩下的才排复习 —— 所以调这个数
+// 等于调「每天复习几道」，不用再单独设一个复习条数。
+export const DAILY_MINUTES = 240;
+
+// 复习选题模式：
+//   CURVE — 艾宾浩斯，到期/过期的先复习（默认，也是历史行为）。
+//   TOPIC — Hot100 复习改成挑与当天新题考点相近的题，方便一起记忆；
+//           牛客/速成题单的复习仍然按到期日走。
+export type ReviewMode = "CURVE" | "TOPIC";
+
 export type PlanSettings = {
   priorityCategories: string[];
   newPerDay: number;
+  dailyMinutes: number;
+  // ISO 星期数（1=周一 … 7=周日）。这些天完全不排题。
+  restWeekdays: number[];
+  reviewMode: ReviewMode;
 };
+
+function parseRestWeekdays(raw: string | undefined): number[] {
+  if (!raw) {
+    return [];
+  }
+  const seen = new Set<number>();
+  for (const part of raw.split(",")) {
+    const day = Number(part.trim());
+    if (Number.isInteger(day) && day >= 1 && day <= 7) {
+      seen.add(day);
+    }
+  }
+  return [...seen].sort((a, b) => a - b);
+}
 
 const VALID_NAMES = new Set(TOPIC_GROUPS.map((group) => group.name));
 
@@ -46,20 +74,48 @@ export async function getPlanSettings(): Promise<PlanSettings> {
   }
   const newPerDay =
     row && row.newPerDay >= 1 && row.newPerDay <= 10 ? row.newPerDay : NEW_PER_DAY;
-  return { priorityCategories, newPerDay };
+  const dailyMinutes =
+    row && row.defaultDailyMinutes >= 30 && row.defaultDailyMinutes <= 720
+      ? row.defaultDailyMinutes
+      : DAILY_MINUTES;
+  return {
+    priorityCategories,
+    newPerDay,
+    dailyMinutes,
+    restWeekdays: parseRestWeekdays(row?.restWeekdays),
+    reviewMode: row?.reviewMode === "TOPIC" ? "TOPIC" : "CURVE",
+  };
 }
 
 export async function savePlanSettings(update: {
   priorityCategories?: string[];
   newPerDay?: number;
+  dailyMinutes?: number;
+  restWeekdays?: number[];
+  reviewMode?: ReviewMode;
 }) {
   const db = getDb();
-  const data: { priorityCategories?: string; newPerDay?: number } = {};
+  const data: {
+    priorityCategories?: string;
+    newPerDay?: number;
+    defaultDailyMinutes?: number;
+    restWeekdays?: string;
+    reviewMode?: string;
+  } = {};
   if (update.priorityCategories !== undefined) {
     data.priorityCategories = JSON.stringify(update.priorityCategories);
   }
   if (update.newPerDay !== undefined) {
     data.newPerDay = Math.max(1, Math.min(10, Math.floor(update.newPerDay)));
+  }
+  if (update.dailyMinutes !== undefined) {
+    data.defaultDailyMinutes = Math.max(30, Math.min(720, Math.floor(update.dailyMinutes)));
+  }
+  if (update.restWeekdays !== undefined) {
+    data.restWeekdays = parseRestWeekdays(update.restWeekdays.join(",")).join(",");
+  }
+  if (update.reviewMode !== undefined) {
+    data.reviewMode = update.reviewMode === "TOPIC" ? "TOPIC" : "CURVE";
   }
   await db.appSettings.upsert({
     where: { id: "default" },
@@ -75,7 +131,9 @@ export async function savePlanSettings(update: {
 
 export const DEFAULT_ASSISTANT_SOUL = [
   "你是用户专属的刷题规划管家，稳重、简洁、可靠。",
-  "- 用户的每日新题配额存在设置里，是硬约束；复习题按艾宾浩斯自动排，不占配额。",
+  "- 用户的每日新题配额存在设置里，是硬约束；新题先占当天的时间预算，复习吃剩下的时间。",
+  "- 复习有两种模式：CURVE 按艾宾浩斯到期日；TOPIC 下 Hot100 改成挑与当天新题考点相近的题（牛客/速成题单仍按到期日）。",
+  "- 设置里可以配休息日（比如周日），休息日完全不排题。",
   "- 没做完的新题会自动顺延，但每天最多叠加 2 道（最早欠下的优先），其余留给后面几天继续消化——既不丢题，也不把某一天压垮。",
   "- 过期没做的复习会自动补课，但每天复习总量不超过 10 道（最紧急的先来），装不下的自动排到后面几天。",
   "- 所以哪怕用户跳过一整天，第二天最多也就是 4 道新题 + 2 道顺延 + 10 道复习，不会出现一天几十题的情况。",

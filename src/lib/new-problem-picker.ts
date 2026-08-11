@@ -18,6 +18,13 @@ function difficultyRank(difficulty: string) {
   return 2;
 }
 
+// 速成题单走的是另一套：分类内部老老实实由易到难。
+function codefunDifficultyRank(difficulty: string) {
+  if (difficulty === "EASY") return 0;
+  if (difficulty === "MEDIUM") return 1;
+  return 2;
+}
+
 // Pick one day's worth of new problems from `pool` (already filtered to
 // enabled + never-studied, in problem order). Three passes:
 //   1. one problem from each priority category, in the configured order;
@@ -39,12 +46,35 @@ export function orderDailyNewPicks<T extends NewPickCandidate>(
   alreadyUsedCategories: Iterable<string> = [],
   alreadyEasyCount = 0,
 ): T[] {
-  // 速成题单优先，且严格按题单顺序刷。作者把 69 道题按算法分类编排好了
-  // （动态规划 → 模拟 → 贪心 → …），打乱顺序、跳着挑难度都会破坏这个编排，
-  // 所以这条路径不做分类分散、也不限制简单题数量。刷完自动回落到牛客 HJ。
+  // 速成题单优先，分类顺序 = 作者的编排（动态规划 → 模拟 → 贪心 → DFS → BFS
+  // → …）：一个分类刷干净了才进下一个，这样能一次把一类题的框架建起来。
+  // 但分类内部按难度由易到难（100 → 200 → 300 分），不再照抄文档里的顺序 ——
+  // 原顺序会在第二天就撞上 300 分压轴题，做起来很痛苦。
+  // 不做分类分散、也不限制简单题数量。刷完自动回落到牛客 HJ。
   const codefun = pool.filter((candidate) => candidate.source === "CODEFUN");
   if (codefun.length) {
-    return codefun.slice(0, count);
+    const byTopic = new Map<string, T[]>();
+    for (const candidate of codefun) {
+      const topic = topicForFrontendId(candidate.frontendId);
+      const list = byTopic.get(topic);
+      if (list) {
+        list.push(candidate);
+      } else {
+        byTopic.set(topic, [candidate]);
+      }
+    }
+    const picks: T[] = [];
+    // Map preserves insertion order, and `pool` arrives in list order, so the
+    // topics come out in the 题单's own sequence.
+    for (const list of byTopic.values()) {
+      if (picks.length >= count) break;
+      // Stable sort: same-difficulty problems keep their 题单 order.
+      const easiestFirst = [...list].sort(
+        (a, b) => codefunDifficultyRank(a.difficulty) - codefunDifficultyRank(b.difficulty),
+      );
+      picks.push(...easiestFirst.slice(0, count - picks.length));
+    }
+    return picks;
   }
 
   const picks: T[] = [];

@@ -1,7 +1,8 @@
 import { Difficulty, PlanItemKind } from "@prisma/client";
-import { addUtcDays, fromDateKey, startOfUtcDay, toDateKey, weekdayIndex } from "@/lib/dates";
+import { addUtcDays, fromDateKey, isoWeekday, startOfUtcDay, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { orderDailyNewPicks } from "@/lib/new-problem-picker";
+import { orderTopicMatchedReviews } from "@/lib/review-picker";
 import { calculateReviewRiskScore } from "@/lib/risk";
 import { getPlanSettings } from "@/lib/settings";
 import { topicForFrontendId, TOPIC_GROUPS } from "@/lib/topics";
@@ -22,9 +23,10 @@ function planKind(kind: CandidateKind): PlanItemKind {
   return "NEW";
 }
 
-// Full re-plan of the current week (today → Sunday): every remaining day gets
-// its due reviews (overdue ones catch up on today) plus the per-day quota of
-// new problems — one from each priority category first, then Hot100 order.
+// Full re-plan of the current week (today → Sunday). Each non-rest day gets its
+// quota of new problems first, then as many reviews as the day's time budget
+// still fits. Which reviews depends on settings.reviewMode: CURVE keeps the
+// forgetting curve, TOPIC matches Hot100 reviews to that day's new problems.
 // Completed items are always preserved. Used by the 重排本周 button and the
 // plan assistant.
 export async function regenerateWeek() {
@@ -94,69 +96,21 @@ export async function regenerateWeek() {
     }
   }
 
-  // Reviews land on their due day; anything due after this week waits for a
-  // later week. Overdue ones do NOT all pile onto today — they fill the week's
-  // days most-overdue-first, each day capped at MAX_REVIEWS_PER_DAY (counting
-  // that day's on-time reviews and already-completed ones), so a skipped day
-  // becomes a trickle over the coming days instead of a 27-item Monday.
-  const schedules = await db.reviewSchedule.findMany({
-    where: { problem: { isEnabled: true } },
-    include: { problem: { select: { estimatedReviewMinutes: true } } },
-    orderBy: { nextReviewDate: "asc" },
-  });
-  const reviewsByDate = new Map<string, Candidate[]>();
-  const overdueQueue: Candidate[] = [];
-  for (const schedule of schedules) {
-    if (assigned.has(schedule.problemId)) {
-      continue;
-    }
-    const dueKey = toDateKey(startOfUtcDay(schedule.nextReviewDate));
-    if (dueKey > lastKey) {
-      continue;
-    }
-    const candidate: Candidate = {
-      problemId: schedule.problemId,
-      kind: schedule.stage === 0 ? "retest" : "review",
-      estimatedMinutes: schedule.problem.estimatedReviewMinutes,
-    };
-    if (dueKey < firstKey) {
-      overdueQueue.push(candidate); // ordered most-overdue-first via the query
-      continue;
-    }
-    assigned.add(schedule.problemId);
-    const list = reviewsByDate.get(dueKey) ?? [];
-    list.push(candidate);
-    reviewsByDate.set(dueKey, list);
-  }
-  for (const date of windowDates) {
-    if (!overdueQueue.length) {
-      break;
-    }
-    const key = toDateKey(date);
-    const used = (completedReviewsByDate.get(key) ?? 0) + (reviewsByDate.get(key)?.length ?? 0);
-    let capacity = Math.max(0, MAX_REVIEWS_PER_DAY - used);
-    if (capacity === 0) {
-      continue;
-    }
-    const list = reviewsByDate.get(key) ?? [];
-    while (capacity > 0 && overdueQueue.length) {
-      const candidate = overdueQueue.shift()!;
-      assigned.add(candidate.problemId);
-      list.push(candidate);
-      capacity -= 1;
-    }
-    reviewsByDate.set(key, list);
-  }
-  // Whatever still overflows the week stays due and trickles in on later days.
+  // 休息日完全不排题（用户设的，比如周日）。已完成的记录照常保留。
+  const activeDates = windowDates.filter((date) => !settings.restWeekdays.includes(isoWeekday(date)));
 
-  // New problems: per-day quota, priority categories first.
+  // 新题先排：当天新题的考点决定了当天配哪些 Hot100 复习题，所以顺序反过来了。
+  // 新题池和复习池是不相交的（新题池要求 reviewSchedule 为 null），先占后占都行。
   const pool = await db.problem.findMany({
     where: NEW_POOL_WHERE,
     orderBy: { hot100Order: "asc" },
   });
   const newByDate = new Map<string, Candidate[]>();
-  for (const date of windowDates) {
+  const topicsByDate = new Map<string, string[]>();
+  for (const date of activeDates) {
     const key = toDateKey(date);
+    const kept = keptByDate.get(key) ?? [];
+    const keptNew = kept.filter((item) => item.kind === "NEW");
     const remainingQuota = Math.max(0, settings.newPerDay - (completedNewByDate.get(key) ?? 0));
     const picks = orderDailyNewPicks(
       pool.filter((problem) => !assigned.has(problem.id)),
@@ -164,12 +118,8 @@ export async function regenerateWeek() {
       remainingQuota,
       // Completed problems stay on the day, so their categories are taken and
       // an already-done 简单 counts against the day's easy allowance.
-      (keptByDate.get(key) ?? [])
-        .filter((item) => item.kind === "NEW")
-        .map((item) => topicForFrontendId(item.problem.frontendId)),
-      (keptByDate.get(key) ?? []).filter(
-        (item) => item.kind === "NEW" && item.problem.difficulty === "EASY",
-      ).length,
+      keptNew.map((item) => topicForFrontendId(item.problem.frontendId)),
+      keptNew.filter((item) => item.problem.difficulty === "EASY").length,
     );
     for (const problem of picks) {
       assigned.add(problem.id);
@@ -182,6 +132,124 @@ export async function regenerateWeek() {
         estimatedMinutes: problem.estimatedNewMinutes,
       })),
     );
+    topicsByDate.set(key, [
+      ...keptNew.map((item) => topicForFrontendId(item.problem.frontendId)),
+      ...picks.map((problem) => topicForFrontendId(problem.frontendId)),
+    ]);
+  }
+
+  // 每天的复习容量：时间预算扣掉已完成的和新题占的，剩下多少排多少复习
+  // （再加一道条数上限兜底）。所以「每天几小时」这一个数就能控制复习量。
+  const capacityByDate = new Map<string, { minutes: number; slots: number }>();
+  for (const date of activeDates) {
+    const key = toDateKey(date);
+    const usedMinutes =
+      (keptByDate.get(key) ?? []).reduce((sum, item) => sum + item.estimatedMinutes, 0) +
+      (newByDate.get(key) ?? []).reduce((sum, item) => sum + item.estimatedMinutes, 0);
+    capacityByDate.set(key, {
+      minutes: Math.max(0, settings.dailyMinutes - usedMinutes),
+      slots: Math.max(0, MAX_REVIEWS_PER_DAY - (completedReviewsByDate.get(key) ?? 0)),
+    });
+  }
+
+  const schedules = await db.reviewSchedule.findMany({
+    where: { problem: { isEnabled: true } },
+    include: {
+      problem: { select: { source: true, frontendId: true, estimatedReviewMinutes: true } },
+    },
+    orderBy: { nextReviewDate: "asc" },
+  });
+  // 平均反馈分 = 有多不熟（0 = AC 快 … 5 = 陌生），考点匹配时用来决定先复习哪道。
+  const feelingStats = await db.studySession.groupBy({
+    by: ["problemId"],
+    where: { feelingScore: { not: null } },
+    _avg: { feelingScore: true },
+  });
+  const avgFeelingByProblem = new Map(
+    feelingStats.map((stat) => [stat.problemId, stat._avg.feelingScore]),
+  );
+
+  const reviewsByDate = new Map<string, Candidate[]>();
+  type Schedule = (typeof schedules)[number];
+  const placeReview = (key: string, schedule: Schedule) => {
+    const capacity = capacityByDate.get(key);
+    if (!capacity || capacity.slots <= 0 || capacity.minutes < schedule.problem.estimatedReviewMinutes) {
+      return false;
+    }
+    capacity.slots -= 1;
+    capacity.minutes -= schedule.problem.estimatedReviewMinutes;
+    const list = reviewsByDate.get(key) ?? [];
+    list.push({
+      problemId: schedule.problemId,
+      kind: schedule.stage === 0 ? "retest" : "review",
+      estimatedMinutes: schedule.problem.estimatedReviewMinutes,
+    });
+    reviewsByDate.set(key, list);
+    assigned.add(schedule.problemId);
+    return true;
+  };
+
+  // 遗忘曲线派：到期的排到到期那天，过期的（或到期日撞上休息日/满了的）从最早
+  // 一天开始找位置。most-overdue-first 由查询的 orderBy 保证。
+  const fillByCurve = (candidates: Schedule[]) => {
+    const spillover: Schedule[] = [];
+    for (const schedule of candidates) {
+      if (assigned.has(schedule.problemId)) {
+        continue;
+      }
+      const dueKey = toDateKey(startOfUtcDay(schedule.nextReviewDate));
+      if (dueKey > lastKey) {
+        continue; // 下周才到期，留给下周
+      }
+      if (dueKey < firstKey || !placeReview(dueKey, schedule)) {
+        spillover.push(schedule);
+      }
+    }
+    for (const schedule of spillover) {
+      for (const date of activeDates) {
+        if (placeReview(toDateKey(date), schedule)) {
+          break;
+        }
+      }
+      // 本周实在装不下的继续挂着过期，后面几天自然会补上（涓流，不是雪崩）。
+    }
+  };
+
+  // 牛客 / 速成题单的复习永远按遗忘曲线 —— 刚做过的 ACM 题就该按时回来。
+  fillByCurve(schedules.filter((schedule) => schedule.problem.source !== "LEETCODE"));
+
+  const leetcodeSchedules = schedules.filter((schedule) => schedule.problem.source === "LEETCODE");
+  if (settings.reviewMode === "TOPIC") {
+    // Hot100 改成考点匹配：挑和当天新题同一个知识点的题，新学的和复习的一起记。
+    const scheduleById = new Map(leetcodeSchedules.map((schedule) => [schedule.problemId, schedule]));
+    for (const date of activeDates) {
+      const key = toDateKey(date);
+      const capacity = capacityByDate.get(key);
+      if (!capacity || capacity.slots <= 0) {
+        continue;
+      }
+      const picks = orderTopicMatchedReviews(
+        leetcodeSchedules
+          .filter((schedule) => !assigned.has(schedule.problemId))
+          .map((schedule) => ({
+            problemId: schedule.problemId,
+            frontendId: schedule.problem.frontendId,
+            estimatedReviewMinutes: schedule.problem.estimatedReviewMinutes,
+            nextReviewDate: schedule.nextReviewDate,
+            avgFeelingScore: avgFeelingByProblem.get(schedule.problemId) ?? null,
+          })),
+        topicsByDate.get(key) ?? [],
+        capacity.slots,
+      );
+      for (const pick of picks) {
+        const schedule = scheduleById.get(pick.problemId);
+        if (schedule) {
+          placeReview(key, schedule);
+        }
+      }
+    }
+  } else {
+    fillByCurve(leetcodeSchedules);
   }
 
   for (const date of windowDates) {
