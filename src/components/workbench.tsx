@@ -473,6 +473,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
               history={data.weekHistory}
               problems={data.problems}
               today={data.today}
+              restWeekdays={data.planSettings.restWeekdays}
               onMove={moveItem}
               onAddProblem={addProblemToDay}
               onAsk={askAssistant}
@@ -617,6 +618,7 @@ function WeeklyView({
   history,
   problems,
   today,
+  restWeekdays,
   onMove,
   onAddProblem,
   onAsk,
@@ -627,6 +629,7 @@ function WeeklyView({
   history: DashboardData["weekHistory"];
   problems: DashboardData["problems"];
   today: string;
+  restWeekdays: number[];
   onMove: (id: string, date: string) => Promise<WeekPlans | null>;
   onAddProblem: (date: string, problemId: string) => Promise<WeekPlans | null>;
   onAsk: (
@@ -947,6 +950,8 @@ function WeeklyView({
             const items = plansByDate.get(day.date) ?? [];
             const isOver = dragOverDate === day.date;
             const isPast = day.date < today;
+            // 休息日：设置里配的（ISO 星期数，周日 = 7），排题时整天跳过。
+            const isRest = restWeekdays.includes(day.weekday === 0 ? 7 : day.weekday);
             return (
               <div
                 key={day.date}
@@ -969,7 +974,13 @@ function WeeklyView({
                     <span className="text-sm font-semibold">{weekdayLabels[day.weekday]}</span>
                     <span className="text-xs text-fg-subtle">{formatYmd(day.date)}</span>
                   </div>
-                  <span className="text-xs font-medium tabular-nums text-fg-subtle">{items.length} 题</span>
+                  {isRest && !items.length ? (
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-fg-subtle">
+                      休息日
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium tabular-nums text-fg-subtle">{items.length} 题</span>
+                  )}
                 </div>
                 <DayPlanList items={items} />
               </div>
