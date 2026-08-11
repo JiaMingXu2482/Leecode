@@ -37,7 +37,7 @@ import {
   CODEFUN_TOPIC_GROUPS,
 } from "@/lib/codefun-problems";
 import { NOWCODER_ID_BASE, NOWCODER_TOPIC_GROUPS } from "@/lib/nowcoder-problems";
-import { TOPIC_GROUPS } from "@/lib/topics";
+import { topicForFrontendId, TOPIC_GROUPS } from "@/lib/topics";
 
 type ActiveView = "today" | "weekly" | "history" | "reviews" | "stats" | "sync";
 type WeekDay = DashboardData["availability"][number];
@@ -1010,16 +1010,21 @@ function WeeklyView({
                       <li key={index}>
                         <a
                           href={`/problems/${entry.problemId}`}
-                          className="flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-muted"
+                          className="flex flex-col gap-0.5 rounded-md px-1.5 py-1 hover:bg-muted"
                           title="查看这道题的历史笔记"
                         >
-                          <span className="font-mono text-[11px] text-fg-subtle">{problemLabel(entry.frontendId)}</span>
-                          <span className="min-w-0 flex-1 truncate text-xs text-fg">{entry.titleCn}</span>
-                          {typeof entry.feelingScore === "number" ? (
-                            <span className="shrink-0 text-[10px] text-fg-subtle">{entry.feelingScore}/5</span>
-                          ) : null}
-                          <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${difficultyClass[entry.difficulty as keyof typeof difficultyClass]}`}>
-                            {difficultyCn[entry.difficulty as keyof typeof difficultyCn]}
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span className="font-mono text-[11px] text-fg-subtle">{problemLabel(entry.frontendId)}</span>
+                            <span className="min-w-0 flex-1 truncate text-xs text-fg">{entry.titleCn}</span>
+                            {typeof entry.feelingScore === "number" ? (
+                              <span className="shrink-0 text-[10px] text-fg-subtle">{entry.feelingScore}/5</span>
+                            ) : null}
+                            <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${difficultyClass[entry.difficulty as keyof typeof difficultyClass]}`}>
+                              {difficultyCn[entry.difficulty as keyof typeof difficultyCn]}
+                            </span>
+                          </span>
+                          <span className="truncate text-[10px] text-fg-subtle">
+                            {topicForFrontendId(entry.frontendId)}
                           </span>
                         </a>
                       </li>
@@ -1182,30 +1187,36 @@ function DayPlanList({ items }: { items: DashboardData["weekPlans"][number]["ite
               <a
                 href={`/problems/${item.problem.id}`}
                 draggable={false}
-                className="flex min-w-0 flex-1 items-center gap-1.5 py-1"
+                className="flex min-w-0 flex-1 flex-col gap-0.5 py-1"
                 title="查看这道题的历史笔记"
               >
-                <span className="font-mono text-[11px] text-fg-subtle">{problemLabel(item.problem.frontendId)}</span>
-                <span
-                  className={`min-w-0 flex-1 truncate text-xs ${
-                    item.isCompleted ? "text-fg-subtle line-through" : "text-fg"
-                  }`}
-                >
-                  {item.problem.titleCn}
-                </span>
-                <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${difficultyClass[item.problem.difficulty]}`}>
-                  {item.problem.difficulty === "EASY" ? "易" : item.problem.difficulty === "MEDIUM" ? "中" : "难"}
-                </span>
-                <span className={`shrink-0 text-[10px] font-medium ${kindTextClass[item.kind]}`}>{kindLabel[item.kind]}</span>
-                {item.carriedFromDate ? (
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="font-mono text-[11px] text-fg-subtle">{problemLabel(item.problem.frontendId)}</span>
                   <span
-                    className="shrink-0 rounded border border-orange-200 bg-orange-50 px-1 py-0.5 text-[10px] font-semibold text-orange-600 dark:border-orange-500/30 dark:bg-orange-500/15 dark:text-orange-300"
-                    title={`${item.carriedFromDate} 未完成，自动顺延到今天（叠加在每日新题目标之上）`}
+                    className={`min-w-0 flex-1 truncate text-xs ${
+                      item.isCompleted ? "text-fg-subtle line-through" : "text-fg"
+                    }`}
                   >
-                    顺延
+                    {item.problem.titleCn}
                   </span>
-                ) : null}
-                {item.isCompleted ? <Check size={12} className="shrink-0 text-emerald-500" /> : null}
+                  <span className={`shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold ${difficultyClass[item.problem.difficulty]}`}>
+                    {item.problem.difficulty === "EASY" ? "易" : item.problem.difficulty === "MEDIUM" ? "中" : "难"}
+                  </span>
+                  <span className={`shrink-0 text-[10px] font-medium ${kindTextClass[item.kind]}`}>{kindLabel[item.kind]}</span>
+                  {item.carriedFromDate ? (
+                    <span
+                      className="shrink-0 rounded border border-orange-200 bg-orange-50 px-1 py-0.5 text-[10px] font-semibold text-orange-600 dark:border-orange-500/30 dark:bg-orange-500/15 dark:text-orange-300"
+                      title={`${item.carriedFromDate} 未完成，自动顺延到今天（叠加在每日新题目标之上）`}
+                    >
+                      顺延
+                    </span>
+                  ) : null}
+                  {item.isCompleted ? <Check size={12} className="shrink-0 text-emerald-500" /> : null}
+                </span>
+                {/* 题型：一眼看出这天是不是同一个考点（新题和配套的 Hot100 复习）。 */}
+                <span className="truncate text-[10px] text-fg-subtle">
+                  {topicForFrontendId(item.problem.frontendId)}
+                </span>
               </a>
             </li>
           ))}
