@@ -204,6 +204,20 @@ model LeetCodeSyncState {
   updatedAt         DateTime   @updatedAt
 }
 
+// 算法总结：手写的 Markdown 笔记，和具体某道题无关，按分类归档。
+// 正文里的题号（#53 / HJ14 / P2352）渲染时会自动链到题目详情页；refs 是从正文
+// 抽出来的题号列表（逗号分隔），用来在题目详情页反向显示「相关算法总结」。
+model AlgoNote {
+  id              String   @id @default(cuid())
+  title           String
+  category        String   @default("")
+  contentMarkdown String   @default("")
+  refs            String   @default("")
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
 model AppSettings {
   id                  String    @id @default("default")
   appPasswordHash     String    @default("")

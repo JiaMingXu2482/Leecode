@@ -7,7 +7,15 @@ import { ensureNowcoderProblems } from "@/lib/nowcoder-import";
 import { getPlanSettings } from "@/lib/settings";
 import { ensureTodayPlan } from "@/lib/week-plans";
 
-export type DashboardView = "today" | "weekly" | "history" | "reviews" | "stats" | "sync";
+export type DashboardView =
+  | "today"
+  | "weekly"
+  | "history"
+  | "reviews"
+  // 算法总结页只用到外壳（导航/主题/同步状态），刷题数据一概不加载。
+  | "algo"
+  | "stats"
+  | "sync";
 
 // Loads ONLY what the given view renders. All views share one return shape (so
 // the client component types stay unchanged), but unused heavy sections come

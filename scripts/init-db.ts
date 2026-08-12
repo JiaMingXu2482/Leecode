@@ -141,6 +141,17 @@ const statements = [
   )`,
   // ACM 笔记页 was folded back into the problem library; drop its leftover table.
   `DROP TABLE IF EXISTS "AcmNote"`,
+  `CREATE TABLE IF NOT EXISTS "AlgoNote" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "title" TEXT NOT NULL,
+    "category" TEXT NOT NULL DEFAULT '',
+    "contentMarkdown" TEXT NOT NULL DEFAULT '',
+    "refs" TEXT NOT NULL DEFAULT '',
+    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS "AlgoNote_category_sortOrder_idx" ON "AlgoNote"("category", "sortOrder")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "Problem_frontendId_key" ON "Problem"("frontendId")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "Problem_slug_key" ON "Problem"("slug")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "ProblemProgress_problemId_key" ON "ProblemProgress"("problemId")`,

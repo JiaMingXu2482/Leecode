@@ -38,8 +38,10 @@ import {
 } from "@/lib/codefun-problems";
 import { NOWCODER_ID_BASE, NOWCODER_TOPIC_GROUPS } from "@/lib/nowcoder-problems";
 import { topicForFrontendId, TOPIC_GROUPS } from "@/lib/topics";
+import type { AlgoNoteSummary } from "@/lib/algo-notes";
+import AlgoNotesView from "@/components/algo-notes-view";
 
-type ActiveView = "today" | "weekly" | "history" | "reviews" | "stats" | "sync";
+type ActiveView = "today" | "weekly" | "history" | "reviews" | "algo" | "stats" | "sync";
 type WeekDay = DashboardData["availability"][number];
 type WeekPlans = DashboardData["weekPlans"];
 
@@ -48,6 +50,7 @@ const navItems: { href: string; key: ActiveView; label: string; icon: typeof Tar
   { href: "/weekly", key: "weekly", label: "周计划", icon: CalendarDays },
   { href: "/history", key: "history", label: "历史笔记", icon: NotebookPen },
   { href: "/reviews", key: "reviews", label: "刷题计划", icon: ListChecks },
+  { href: "/algo-notes", key: "algo", label: "算法总结", icon: BookOpen },
   { href: "/stats", key: "stats", label: "统计", icon: DatabaseZap },
   { href: "/settings/sync", key: "sync", label: "力扣同步", icon: Settings2 },
 ];
@@ -59,6 +62,10 @@ const viewTitle: Record<ActiveView, { title: string; subtitle: string }> = {
   reviews: {
     title: "刷题计划",
     subtitle: "分 Hot100 和牛客华为机试两个题库管理：勾选不想刷的题或整类，未勾选的进入刷题列表。",
+  },
+  algo: {
+    title: "算法总结",
+    subtitle: "按分类归档的 Markdown 笔记。正文里的题号（#53 / HJ14 / P2352）会自动链到题目详情页。",
   },
   stats: { title: "统计", subtitle: "每道题的做题反馈平均分，可按分数升序或降序排序。" },
   sync: { title: "力扣同步", subtitle: "粘贴 leetcode.cn Cookie，同步 AC 状态、提交画像和最近代码。" },
@@ -142,7 +149,17 @@ let lastWarmAt = 0;
 const lastRefreshedAt: Record<string, number> = {};
 const REFRESH_AFTER_MS = 60_000;
 
-export function Workbench({ data, active }: { data: DashboardData; active: ActiveView }) {
+export function Workbench({
+  data,
+  active,
+  algoNotes,
+}: {
+  data: DashboardData;
+  active: ActiveView;
+  // 只有算法总结页会传；它的数据和刷题的 DashboardData 没关系，所以单独走一个 prop，
+  // 不往 DashboardData 里塞。
+  algoNotes?: AlgoNoteSummary[];
+}) {
   const [cookie, setCookie] = useState("");
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
@@ -481,6 +498,7 @@ export function Workbench({ data, active }: { data: DashboardData; active: Activ
             />
           ) : null}
           {active === "history" ? <HistoryView data={data} /> : null}
+          {active === "algo" ? <AlgoNotesView initialNotes={algoNotes ?? []} /> : null}
           {active === "reviews" ? (
             <TopicsView
               data={data}

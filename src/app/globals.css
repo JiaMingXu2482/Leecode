@@ -79,3 +79,135 @@ textarea {
 .note-content strong {
   font-weight: 700;
 }
+
+/* 算法总结的 Markdown 正文。Tailwind preflight 把标题/列表/表格都抹平了，
+   这里按排版需要重新给回来。选择器都限定在 .md-body 内，不影响别的页面。 */
+.md-body {
+  font-size: 0.9375rem;
+  line-height: 1.75;
+  color: var(--fg);
+}
+.md-body > :first-child {
+  margin-top: 0;
+}
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4 {
+  font-weight: 700;
+  line-height: 1.35;
+  scroll-margin-top: 6rem;
+}
+.md-body h1 {
+  margin: 1.75rem 0 0.75rem;
+  font-size: 1.5rem;
+}
+.md-body h2 {
+  margin: 1.75rem 0 0.75rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.35rem;
+  font-size: 1.2rem;
+}
+.md-body h3 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 1.02rem;
+}
+.md-body h4 {
+  margin: 1rem 0 0.4rem;
+  font-size: 0.95rem;
+}
+.md-body p {
+  margin: 0.7rem 0;
+}
+.md-body ul,
+.md-body ol {
+  margin: 0.7rem 0;
+  padding-left: 1.4rem;
+}
+.md-body ul {
+  list-style: disc;
+}
+.md-body ol {
+  list-style: decimal;
+}
+.md-body li {
+  margin: 0.25rem 0;
+}
+.md-body strong {
+  font-weight: 700;
+}
+.md-body em {
+  font-style: italic;
+}
+.md-body del {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+.md-body hr {
+  margin: 1.5rem 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.md-body blockquote {
+  margin: 0.9rem 0;
+  border-left: 3px solid var(--line-strong);
+  padding: 0.1rem 0 0.1rem 0.9rem;
+  color: var(--fg-muted);
+}
+/* 行内代码 */
+.md-body :not(pre) > code {
+  border-radius: 4px;
+  background: var(--muted);
+  padding: 0.1em 0.35em;
+  font-family: Consolas, "Courier New", ui-monospace, monospace;
+  font-size: 0.875em;
+}
+/* 代码块：宽代码横向滚动，页面本身不跟着横向滚 */
+.md-body pre {
+  margin: 0.9rem 0;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: #0f172a;
+  padding: 0.9rem 1rem;
+  color: #e2e8f0;
+}
+.md-body pre code {
+  font-family: Consolas, "Courier New", ui-monospace, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+/* 表格同理，宽表格在自己的容器里滚 */
+.md-body .md-table {
+  margin: 0.9rem 0;
+  overflow-x: auto;
+}
+.md-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.md-body th,
+.md-body td {
+  border: 1px solid var(--line);
+  padding: 0.4rem 0.65rem;
+  text-align: left;
+}
+.md-body th {
+  background: var(--muted);
+  font-weight: 600;
+}
+/* 自动识别出来的题号链接 */
+.md-body a {
+  color: rgb(37 99 235);
+  text-decoration: none;
+}
+.md-body a:hover {
+  text-decoration: underline;
+}
+.dark .md-body a {
+  color: rgb(96 165 250);
+}
+.md-body a.md-problem {
+  border-bottom: 1px dotted currentColor;
+  font-weight: 500;
+}

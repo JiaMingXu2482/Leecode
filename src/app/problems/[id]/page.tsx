@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
+import { algoNotesForProblem } from "@/lib/algo-notes";
 import { isAuthorizedServer } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { noteToHtml } from "@/lib/notes";
@@ -31,6 +32,9 @@ export default async function ProblemDetailPage({
   if (!problem) {
     notFound();
   }
+
+  // 反向链接：哪些算法总结在正文里引用了这道题
+  const relatedNotes = await algoNotesForProblem(problem.frontendId);
 
   const scores = problem.sessions
     .map((session) => session.feelingScore)
@@ -72,6 +76,30 @@ export default async function ProblemDetailPage({
             />
           </dl>
         </div>
+
+        {relatedNotes.length ? (
+          <section className="mt-5 rounded-lg border border-line p-5">
+            <h2 className="text-sm font-semibold">相关算法总结</h2>
+            <p className="mt-1 text-xs text-fg-subtle">这些笔记的正文里引用了这道题。</p>
+            <ul className="mt-3 space-y-1.5">
+              {relatedNotes.map((note) => (
+                <li key={note.id}>
+                  <Link
+                    href="/algo-notes"
+                    className="inline-flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    {note.category ? (
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-fg-subtle">
+                        {note.category}
+                      </span>
+                    ) : null}
+                    {note.title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <section className="mt-5 rounded-lg border border-line p-5">
           <h2 className="text-sm font-semibold">做题历史与笔记</h2>

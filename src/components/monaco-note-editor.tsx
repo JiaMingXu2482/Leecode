@@ -15,12 +15,17 @@ export default function MonacoNoteEditor({
   value,
   onChange,
   draftKey,
+  language = "cpp",
+  height = "28rem",
 }: {
   value: string;
   onChange: (next: string) => void;
   // localStorage key for crash/navigation-safe drafts. Every change is
   // persisted; the caller clears the draft on successful submit.
   draftKey?: string;
+  // 题目笔记写的是 C++；算法总结写的是 Markdown。
+  language?: string;
+  height?: string;
 }) {
   const [initial] = useState(() => {
     let text = noteToPlainText(value);
@@ -56,8 +61,8 @@ export default function MonacoNoteEditor({
   return (
     <div className="mt-2 overflow-hidden rounded-md border border-line-strong">
       <Editor
-        height="28rem"
-        defaultLanguage="cpp"
+        height={height}
+        defaultLanguage={language}
         theme={dark ? "vs-dark" : "light"}
         defaultValue={initial}
         onChange={(next) => {
@@ -70,7 +75,10 @@ export default function MonacoNoteEditor({
           }
         }}
         loading={
-          <div className="flex h-[28rem] items-center justify-center text-sm text-fg-subtle">
+          <div
+            style={{ height }}
+            className="flex items-center justify-center text-sm text-fg-subtle"
+          >
             编辑器加载中…
           </div>
         }
