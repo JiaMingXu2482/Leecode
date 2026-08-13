@@ -1,6 +1,15 @@
 # Hot100 复习计划
 
-一个自部署的 LeetCode Hot100 复习网站。它会同步 `leetcode.cn` 的 Hot100 AC 状态，并按遗忘曲线安排旧题重测、到期复习和新题推进。
+一个自部署的刷题管理站。按遗忘曲线安排复习，同时管理三个题库的新题推进。
+
+改动历史见 [CHANGELOG.md](CHANGELOG.md)。
+
+## 功能
+
+- **三个题库**：LeetCode Hot100（同步 `leetcode.cn` 的 AC 状态）、牛客华为机试 HJ1–108、塔子哥「一周速成题单」（CodeFun2000）。题号段互不重叠，进度分开统计。
+- **排题**：每日新题配额 + 时间预算，复习按艾宾浩斯到期日；也可切成「考点匹配」模式，让当天的 Hot100 复习跟着当天新题的考点走。支持休息日、欠账限量、手动拖动优先。
+- **笔记**：每次做题记反馈分（0 = AC 快 … 5 = 陌生）、解题思路和 C++ 语法两栏；另有独立的**算法总结**页做跨题的 Markdown 笔记，正文里的题号会自动链到题目详情页。
+- **计划助手**：DeepSeek 函数调用，可以直接改计划。
 
 ## 本地运行
 
@@ -63,12 +72,30 @@ SQLite 数据库保存在 Docker volume `leetcode-review-data` 中，重启或�
 
 ## 后续更新
 
-本地改完并推到 GitHub 后，在服务器执行：
+如果服务器能访问 GitHub，本地推完之后在服务器执行：
 
 ```bash
 git pull
 docker compose up -d --build
 ```
+
+**如果服务器访问不了 GitHub**（当前这台就是这样），改用 git bundle 走 SSH 送过去：
+
+```bash
+# 本地
+git bundle create update.bundle main
+scp update.bundle 服务器:/tmp/update.bundle
+
+# 服务器
+cd /root/Leecode
+git fetch /tmp/update.bundle main:refs/remotes/bundle/main
+git merge --ff-only refs/remotes/bundle/main
+docker compose up -d --build
+```
+
+数据库结构变更由 `scripts/init-db.ts` 在容器启动时自动应用，都是幂等语句
+（`CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ADD COLUMN` 吞掉重复列错误），
+不会动已有数据。
 
 ## 力扣同步
 
