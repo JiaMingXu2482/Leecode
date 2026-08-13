@@ -102,7 +102,8 @@ const kindTextClass = {
   RETEST: "text-purple-600 dark:text-purple-400",
 };
 const APP_VERSION = "v1.19.0";
-const APP_UPDATED = "2026-07-08";
+// 构建时由 next.config.ts 注入，不用手动维护（手动那版一直停在 2026-07-08）。
+const APP_UPDATED = process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
 
 // Monaco (the engine behind LeetCode's code editor) is heavy, so it loads on
 // demand — only when a feedback panel actually opens.
@@ -393,7 +394,10 @@ export function Workbench({
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold">Hot100 复习计划</div>
             <div className="text-xs text-fg-subtle">Ebbinghaus Planner</div>
-            <div className="mt-0.5 text-[11px] text-fg-subtle">{APP_VERSION} · 更新于 {APP_UPDATED}</div>
+            <div className="mt-0.5 text-[11px] text-fg-subtle">
+              {APP_VERSION}
+              {APP_UPDATED ? ` · 更新于 ${APP_UPDATED}` : ""}
+            </div>
           </div>
         </div>
         <nav className="mt-8 space-y-1">

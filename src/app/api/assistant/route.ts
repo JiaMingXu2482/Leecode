@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthorizedRequest } from "@/lib/auth";
 import { startOfUtcDay, toDateKey } from "@/lib/dates";
+import { type ChatMessage, runDeepSeekChat, sanitizeHistory, type ToolSpec } from "@/lib/deepseek";
 import {
   addProblemToDate,
   getWeakProblems,
@@ -25,8 +26,7 @@ import { loadWeekPlans } from "@/lib/week-plans";
 // 计划助手: one natural-language instruction → DeepSeek function-calling →
 // scheduling actions (priority categories, per-day quota, re-plan, add a
 // problem). Runs entirely server-side; the key never reaches the browser.
-
-const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
+// 对话循环在 lib/deepseek.ts，和算法总结页的只读笔记助手共用。
 
 // Authoritative, per-day rendering of the week plan. Injected into the system
 // prompt and returned by get_current_plan so the model relays real data instead
@@ -60,13 +60,7 @@ function renderWeekPlan(weekPlans: Awaited<ReturnType<typeof loadWeekPlans>>, qu
     .join("\n");
 }
 
-type ToolCall = { id: string; function: { name: string; arguments: string } };
-type ChatMessage =
-  | { role: "system" | "user"; content: string }
-  | { role: "assistant"; content: string | null; tool_calls?: ToolCall[] }
-  | { role: "tool"; tool_call_id: string; content: string };
-
-const TOOLS = [
+const TOOLS: ToolSpec[] = [
   {
     type: "function",
     function: {
@@ -331,19 +325,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "请输入一句 500 字以内的指令" }, { status: 400 });
   }
   // Recent chat tail from the client, for conversational context.
-  const history: ChatMessage[] = (Array.isArray(body.history) ? body.history : [])
-    .filter(
-      (entry): entry is { role: "user" | "assistant"; content: string } =>
-        (entry?.role === "user" || entry?.role === "assistant") &&
-        typeof entry?.content === "string" &&
-        entry.content.length > 0,
-    )
-    .slice(-8)
-    .map((entry) =>
-      entry.role === "user"
-        ? { role: "user", content: entry.content.slice(0, 2000) }
-        : { role: "assistant", content: entry.content.slice(0, 2000) },
-    );
+  const history = sanitizeHistory(body.history);
 
   const today = startOfUtcDay(new Date());
   const [settings, weekPlans, brain] = await Promise.all([
@@ -375,84 +357,19 @@ export async function POST(request: NextRequest) {
     { role: "user", content: message },
   ];
 
-  let changed = false;
-  let reply = "";
   // 12 rounds: cascading a move across several days costs one tool call per
   // hop, plus a final get_current_plan before the summary.
-  for (let round = 0; round < 12; round += 1) {
-    let response: Response;
-    try {
-      response = await fetch(DEEPSEEK_URL, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: "deepseek-chat",
-          messages,
-          tools: TOOLS,
-          temperature: 0,
-        }),
-        // A hung upstream must not hang the request (and the chat spinner)
-        // forever; 60s per round is generous for a tool-calling turn.
-        signal: AbortSignal.timeout(60_000),
-      });
-    } catch (error) {
-      const timedOut = error instanceof Error && error.name === "TimeoutError";
-      return NextResponse.json(
-        { error: timedOut ? "DeepSeek 响应超时，请稍后重试。" : "DeepSeek 连接失败，请稍后重试。" },
-        { status: 504 },
-      );
-    }
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      return NextResponse.json(
-        { error: `DeepSeek 调用失败 (${response.status}): ${detail.slice(0, 200)}` },
-        { status: 502 },
-      );
-    }
-    const payload = (await response.json()) as {
-      choices: { message: { content: string | null; tool_calls?: ToolCall[] } }[];
-    };
-    const assistantMessage = payload.choices[0]?.message;
-    if (!assistantMessage) {
-      return NextResponse.json({ error: "DeepSeek 返回为空" }, { status: 502 });
-    }
-    messages.push({
-      role: "assistant",
-      content: assistantMessage.content,
-      tool_calls: assistantMessage.tool_calls,
-    });
-
-    if (!assistantMessage.tool_calls?.length) {
-      reply = assistantMessage.content ?? "已处理。";
-      break;
-    }
-    for (const call of assistantMessage.tool_calls) {
-      let args: Record<string, unknown> = {};
-      try {
-        args = JSON.parse(call.function.arguments || "{}");
-      } catch {}
-      // A tool blowing up (bad args, DB hiccup) must not 500 the whole
-      // conversation — feed the error back so the model can adapt or report.
-      let result: string;
-      try {
-        result = await runTool(call.function.name, args);
-        // Reads and brain writes don't touch the plan, so no weekPlans reload.
-        const readOnly = ["get_current_plan", "get_weak_problems", "save_memory", "update_soul"];
-        if (!readOnly.includes(call.function.name)) {
-          changed = true;
-        }
-      } catch (error) {
-        result = `工具执行出错: ${error instanceof Error ? error.message : String(error)}`;
-      }
-      messages.push({ role: "tool", tool_call_id: call.id, content: result });
-    }
+  const result = await runDeepSeekChat({ apiKey, messages, tools: TOOLS, runTool, maxRounds: 12 });
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
   }
 
+  // Reads and brain writes don't touch the plan, so no weekPlans reload.
+  const READ_ONLY = ["get_current_plan", "get_weak_problems", "save_memory", "update_soul"];
+  const changed = result.toolsCalled.some((name) => !READ_ONLY.includes(name));
+
   return NextResponse.json({
-    reply: stripMarkdown(reply || "已处理（本次对话轮数达到上限）。").trim(),
+    reply: stripMarkdown(result.reply).trim(),
     weekPlans: changed ? await loadWeekPlans(today) : undefined,
   });
 }
