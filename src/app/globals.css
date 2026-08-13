@@ -211,3 +211,58 @@ textarea {
   border-bottom: 1px dotted currentColor;
   font-weight: 500;
 }
+
+/* 紧凑变体：笔记助手的聊天气泡里也渲染 Markdown，但那是个窄面板，
+   整页尺寸的标题和间距会把它撑爆，这里整体缩一档。 */
+.md-body.md-compact {
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+.md-compact h1 {
+  margin: 0.75rem 0 0.4rem;
+  font-size: 0.95rem;
+}
+.md-compact h2 {
+  margin: 0.75rem 0 0.4rem;
+  padding-bottom: 0.2rem;
+  font-size: 0.875rem;
+}
+.md-compact h3,
+.md-compact h4 {
+  margin: 0.6rem 0 0.3rem;
+  font-size: 0.8125rem;
+}
+.md-compact p,
+.md-compact ul,
+.md-compact ol,
+.md-compact blockquote {
+  margin: 0.4rem 0;
+}
+.md-compact ul,
+.md-compact ol {
+  padding-left: 1.1rem;
+}
+.md-compact li {
+  margin: 0.15rem 0;
+}
+.md-compact hr {
+  margin: 0.75rem 0;
+}
+.md-compact pre {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.7rem;
+}
+.md-compact pre code {
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+.md-compact .md-table {
+  margin: 0.5rem 0;
+}
+.md-compact table {
+  font-size: 0.6875rem;
+}
+.md-compact th,
+.md-compact td {
+  padding: 0.25rem 0.4rem;
+}

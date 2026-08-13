@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AlgoNoteSummary } from "@/lib/algo-notes";
 import { attachCopyButtons } from "@/lib/code-copy";
 import { markdownToHtml } from "@/lib/markdown";
+import { boxAfterDrag, boxAfterResize, isPanelBox, type PanelBox } from "@/lib/panel-box";
 
 // Monaco is heavy and only needed once the user actually edits.
 const MonacoNoteEditor = dynamic(() => import("@/components/monaco-note-editor"), {
@@ -20,8 +21,19 @@ const MonacoNoteEditor = dynamic(() => import("@/components/monaco-note-editor")
 const UNCATEGORIZED = "未分类";
 const DRAFT_KEY = "algo-note-draft";
 const CHAT_KEY = "algo-note-chat";
+const BOX_KEY = "algo-note-assistant-box";
 
 type ChatTurn = { role: "user" | "assistant"; content: string };
+
+function readBox(): PanelBox | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(BOX_KEY) ?? "null");
+    return isPanelBox(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 type Draft = { id: string | null; title: string; category: string; contentMarkdown: string };
 
@@ -257,6 +269,10 @@ function NoteAssistant({
     }
   });
   const scrollRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // 位置和尺寸都记在 localStorage：拖到顺手的地方、拉到顺手的大小之后，
+  // 下次打开还是那样。null = 还没动过，用默认的右下角。
+  const [box, setBox] = useState<PanelBox | null>(() => readBox());
 
   useEffect(() => {
     try {
@@ -264,6 +280,54 @@ function NoteAssistant({
     } catch {}
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [chat]);
+
+  // 拖动/缩放期间挂在 window 上，指针跑出面板也不会掉。几何计算在 panel-box.ts
+  // 里，那边有单测覆盖各种边界（拖出屏幕、缩成负数）。
+  function trackPointer(onMove: (event: PointerEvent) => void) {
+    function move(event: PointerEvent) {
+      onMove(event);
+    }
+    function up() {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    }
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
+  function viewport() {
+    return { width: window.innerWidth, height: window.innerHeight };
+  }
+
+  // 拖标题栏移动窗口。
+  function startDrag(event: React.PointerEvent) {
+    const rect = panelRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const grab = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+    const size = { w: rect.width, h: rect.height };
+    trackPointer((moveEvent) =>
+      saveBox(boxAfterDrag({ x: moveEvent.clientX, y: moveEvent.clientY }, grab, size, viewport())),
+    );
+  }
+
+  // 拖右下角改大小。用自绘的把手而不是 CSS resize —— 面板是 flex 布局，
+  // 原生 resize 和 flex 子项容易打架，自己算更可控。
+  function startResize(event: React.PointerEvent) {
+    event.preventDefault();
+    const rect = panelRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const origin = { x: rect.left, y: rect.top };
+    trackPointer((moveEvent) =>
+      saveBox(boxAfterResize({ x: moveEvent.clientX, y: moveEvent.clientY }, origin, viewport())),
+    );
+  }
+
+  function saveBox(next: PanelBox) {
+    setBox(next);
+    try {
+      localStorage.setItem(BOX_KEY, JSON.stringify(next));
+    } catch {}
+  }
 
   async function send() {
     const message = input.trim();
@@ -301,12 +365,21 @@ function NoteAssistant({
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-30 flex h-[32rem] w-[26rem] max-w-[calc(100vw-3rem)] flex-col rounded-lg border border-line bg-surface shadow-2xl">
-      <div className="flex items-center gap-2 border-b border-line px-3 py-2">
+    <div
+      ref={panelRef}
+      style={box ? { left: box.x, top: box.y, width: box.w, height: box.h, right: "auto", bottom: "auto" } : undefined}
+      className="fixed bottom-6 right-6 z-30 flex h-[34rem] w-[30rem] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-2xl"
+    >
+      <div
+        onPointerDown={startDrag}
+        className="flex cursor-move touch-none select-none items-center gap-2 border-b border-line px-3 py-2"
+        title="拖这里可以移动窗口"
+      >
         <Sparkles size={15} className="shrink-0 text-amber-500" />
         <span className="text-sm font-semibold">笔记助手</span>
         <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-fg-subtle">只读</span>
         <button
+          onPointerDown={(event) => event.stopPropagation()}
           onClick={() => {
             setChat([]);
             try {
@@ -317,7 +390,23 @@ function NoteAssistant({
         >
           清空
         </button>
+        {box ? (
+          <button
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => {
+              setBox(null);
+              try {
+                localStorage.removeItem(BOX_KEY);
+              } catch {}
+            }}
+            className="rounded-md px-1.5 py-0.5 text-xs text-fg-subtle hover:bg-muted"
+            title="恢复默认位置和大小"
+          >
+            复位
+          </button>
+        ) : null}
         <button
+          onPointerDown={(event) => event.stopPropagation()}
           onClick={() => setOpen(false)}
           className="rounded-md px-1 py-0.5 text-fg-subtle hover:bg-muted"
           title="收起"
@@ -330,15 +419,17 @@ function NoteAssistant({
         {chat.length ? (
           chat.map((turn, index) => (
             <div key={index} className={turn.role === "user" ? "text-right" : ""}>
-              <div
-                className={`inline-block max-w-full overflow-x-auto whitespace-pre-wrap rounded-md px-2.5 py-1.5 text-left text-xs leading-relaxed ${
-                  turn.role === "user"
-                    ? "bg-blue-600 text-white"
-                    : "border border-line bg-muted text-fg"
-                }`}
-              >
-                {turn.content}
-              </div>
+              {turn.role === "user" ? (
+                <div className="inline-block max-w-full whitespace-pre-wrap rounded-md bg-blue-600 px-2.5 py-1.5 text-left text-xs leading-relaxed text-white">
+                  {turn.content}
+                </div>
+              ) : (
+                // 助手的产出本来就是 Markdown（标题/代码块/表格），按纯文本显示等于
+                // 把它最有用的部分糟蹋掉，所以走和笔记正文同一套渲染。
+                <div className="overflow-x-auto rounded-md border border-line bg-muted px-2.5 py-1.5">
+                  <NoteBody html={markdownToHtml(turn.content).html} compact />
+                </div>
+              )}
               {turn.role === "assistant" && onInsert ? (
                 <button
                   onClick={() => onInsert(turn.content)}
@@ -399,6 +490,17 @@ function NoteAssistant({
         >
           {busy ? "思考中…" : "发送"}
         </button>
+      </div>
+
+      {/* 右下角的缩放把手 */}
+      <div
+        onPointerDown={startResize}
+        className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize touch-none"
+        title="拖动改变窗口大小"
+      >
+        <svg viewBox="0 0 16 16" className="h-full w-full text-fg-subtle" aria-hidden>
+          <path d="M15 6 L6 15 M15 11 L11 15" stroke="currentColor" strokeWidth="1.2" fill="none" />
+        </svg>
       </div>
     </div>
   );
@@ -554,7 +656,7 @@ function NoteReader({
 
 // 渲染好的 HTML 挂进 DOM，并给每个代码块加一个复制按钮。
 // 注入逻辑抽在 attachCopyButtons 里，那边有单测覆盖。
-function NoteBody({ html }: { html: string }) {
+function NoteBody({ html, compact = false }: { html: string; compact?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -568,7 +670,7 @@ function NoteBody({ html }: { html: string }) {
   return (
     <div
       ref={ref}
-      className="md-body"
+      className={compact ? "md-body md-compact" : "md-body"}
       // html 由 markdownToHtml 生成，所有用户输入都经过 escapeHtml
       dangerouslySetInnerHTML={{ __html: html }}
     />
