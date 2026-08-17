@@ -7,7 +7,6 @@ import { calculateReviewRiskScore } from "@/lib/risk";
 import { getPlanSettings } from "@/lib/settings";
 import { topicForFrontendId, TOPIC_GROUPS } from "@/lib/topics";
 import {
-  ACM_REVIEWS_PER_DAY,
   deletePlanItemsRestoringMinutes,
   loadWeekPlans,
   MAX_REVIEWS_PER_DAY,
@@ -161,8 +160,11 @@ export async function regenerateWeek() {
     });
   }
 
+  // 只有 Hot100 进复习循环。ACM 格式的题（牛客 / 速成题单）机考不考原题，做它们
+  // 是为了积累经验、总结笔记、保持手感，不需要按遗忘曲线重做 —— 所以查询这一层
+  // 就把它们排除掉。历史上给 ACM 题建过的复习计划就此变成惰性数据，不会再被排。
   const schedules = await db.reviewSchedule.findMany({
-    where: { problem: { isEnabled: true } },
+    where: { problem: { isEnabled: true, source: "LEETCODE" } },
     include: {
       problem: { select: { source: true, frontendId: true, estimatedReviewMinutes: true } },
     },
@@ -200,16 +202,7 @@ export async function regenerateWeek() {
 
   // 遗忘曲线派：到期的排到到期那天，过期的（或到期日撞上休息日/满了的）从最早
   // 一天开始找位置。most-overdue-first 由查询的 orderBy 保证。
-  // perDayCap 给某一类复习单独限量，用来防止一类题吃光整天的预算。
-  const fillByCurve = (candidates: Schedule[], perDayCap = MAX_REVIEWS_PER_DAY) => {
-    const used = new Map<string, number>();
-    const place = (key: string, schedule: Schedule) => {
-      if ((used.get(key) ?? 0) >= perDayCap || !placeReview(key, schedule)) {
-        return false;
-      }
-      used.set(key, (used.get(key) ?? 0) + 1);
-      return true;
-    };
+  const fillByCurve = (candidates: Schedule[]) => {
     const spillover: Schedule[] = [];
     for (const schedule of candidates) {
       if (assigned.has(schedule.problemId)) {
@@ -219,13 +212,13 @@ export async function regenerateWeek() {
       if (dueKey > lastKey) {
         continue; // 下周才到期，留给下周
       }
-      if (dueKey < firstKey || !place(dueKey, schedule)) {
+      if (dueKey < firstKey || !placeReview(dueKey, schedule)) {
         spillover.push(schedule);
       }
     }
     for (const schedule of spillover) {
       for (const date of activeDates) {
-        if (place(toDateKey(date), schedule)) {
+        if (placeReview(toDateKey(date), schedule)) {
           break;
         }
       }
@@ -233,14 +226,8 @@ export async function regenerateWeek() {
     }
   };
 
-  // 牛客 / 速成题单的复习按遗忘曲线 —— 刚做过的 ACM 题就该按时回来。考点匹配
-  // 模式下限量，否则刚集中刷完的一批题同时到期，会把 Hot100 的位置全占了。
-  fillByCurve(
-    schedules.filter((schedule) => schedule.problem.source !== "LEETCODE"),
-    settings.reviewMode === "TOPIC" ? ACM_REVIEWS_PER_DAY : MAX_REVIEWS_PER_DAY,
-  );
-
-  const leetcodeSchedules = schedules.filter((schedule) => schedule.problem.source === "LEETCODE");
+  // schedules 查询已经只含 Hot100，所以这里不用再按 source 过滤。
+  const leetcodeSchedules = schedules;
   if (settings.reviewMode === "TOPIC") {
     // Hot100 改成考点匹配：挑和当天新题同一个知识点的题，新学的和复习的一起记。
     const scheduleById = new Map(leetcodeSchedules.map((schedule) => [schedule.problemId, schedule]));

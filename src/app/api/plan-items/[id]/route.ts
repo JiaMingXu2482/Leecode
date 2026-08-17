@@ -101,6 +101,11 @@ export async function PATCH(
   const noteSyntax = body.noteSyntax ?? existingSession?.noteSyntax ?? "";
   const resolved = resolvePassRate(body.passRate, existingSession?.passRate);
   const nextPassRate = resolved.ok ? resolved.value : null;
+  // ACM 格式的题（牛客 / 速成题单）不进复习循环 —— 机考不考原题，做它们是为了
+  // 积累经验、总结笔记、保持手感，重做一遍价值很低。只有 Hot100 需要按遗忘曲线
+  // 复习。所以这里根本不给 ACM 题建复习计划，否则库里会堆一堆永远不会被排的
+  // 到期记录，还把「过期待复习」的统计撑得很虚。
+  const needsReviewCycle = item.problem.source === "LEETCODE";
 
   const [updated] = await db.$transaction([
     db.planItem.update({
@@ -145,26 +150,31 @@ export async function PATCH(
         lastAcceptedAt: accepted ? reviewedAt : null,
       },
     }),
-    db.reviewSchedule.upsert({
-      where: { problemId: item.problemId },
-      update: {
-        nextReviewDate: review.nextReviewDate,
-        stage,
-        consecutiveStrong,
-      },
-      create: {
-        problemId: item.problemId,
-        nextReviewDate: review.nextReviewDate,
-        stage,
-        consecutiveStrong,
-      },
-    }),
+    ...(needsReviewCycle
+      ? [
+          db.reviewSchedule.upsert({
+            where: { problemId: item.problemId },
+            update: {
+              nextReviewDate: review.nextReviewDate,
+              stage,
+              consecutiveStrong,
+            },
+            create: {
+              problemId: item.problemId,
+              nextReviewDate: review.nextReviewDate,
+              stage,
+              consecutiveStrong,
+            },
+          }),
+        ]
+      : []),
   ]);
 
   // Whenever a rated problem's next review falls within this week (today →
   // Sunday), drop it straight onto that day's plan so the weekly view reflects
   // it immediately — no re-plan needed. Reviews due after this week wait.
-  {
+  // ACM 题不进复习循环，所以整段跳过。
+  if (needsReviewCycle) {
     const todayStart = startOfUtcDay(new Date());
     const weekStart = addUtcDays(todayStart, -((weekdayIndex(todayStart) + 6) % 7));
     const weekEnd = addUtcDays(weekStart, 6); // Sunday
