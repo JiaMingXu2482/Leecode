@@ -104,6 +104,9 @@ model StudySession {
   rating          RecallRating
   feelingScore    Int?
   reviewAfterDays Int?
+  // 判题机给的通过率百分比（0-100），手动填。机考是部分给分，「思路对但只过 60%」
+  // 和「一次全过」是两回事，反馈分分不出来这个差别。
+  passRate        Int?
   spentMinutes    Int
   noteIdea        String       @default("")
   notePitfall     String       @default("")

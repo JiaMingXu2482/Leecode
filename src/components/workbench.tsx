@@ -349,10 +349,11 @@ export function Workbench({
     reviewAfterDays?: number,
     noteMarkdown?: string,
     noteSyntax?: string,
+    passRate?: number | null,
   ) {
     const ok = await requestJson(
       `/api/plan-items/${id}`,
-      { feelingScore, reviewAfterDays, noteMarkdown, noteSyntax },
+      { feelingScore, reviewAfterDays, noteMarkdown, noteSyntax, passRate },
       "PATCH",
     );
     if (ok) router.refresh();
@@ -532,6 +533,7 @@ function TodayView({
     reviewAfterDays?: number,
     noteMarkdown?: string,
     noteSyntax?: string,
+    passRate?: number | null,
   ) => void;
   completion: number;
 }) {
@@ -1139,6 +1141,9 @@ function HistoryEntry({ entry }: { entry: DashboardData["weekHistory"][number]["
         {typeof entry.feelingScore === "number" ? (
           <span className="shrink-0 text-xs text-fg-subtle">反馈 {entry.feelingScore}/5</span>
         ) : null}
+        {typeof entry.passRate === "number" ? (
+          <span className="shrink-0 text-xs text-fg-subtle">通过率 {entry.passRate}%</span>
+        ) : null}
       </button>
       {open ? (
         <div className="border-t border-line px-4 py-3">
@@ -1591,12 +1596,17 @@ function TaskRow({
     reviewAfterDays?: number,
     noteMarkdown?: string,
     noteSyntax?: string,
+    passRate?: number | null,
   ) => void;
 }) {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [pastOpen, setPastOpen] = useState(false);
   const [feelingScore, setFeelingScore] = useState<number | null>(item.session?.feelingScore ?? null);
   const [reviewAfterDays, setReviewAfterDays] = useState(item.session?.reviewAfterDays ?? 7);
+  // 通过率存成字符串，因为「留空」和「填 0」是两种不同的意思，number 状态区分不了。
+  const [passRate, setPassRate] = useState(() =>
+    typeof item.session?.passRate === "number" ? String(item.session.passRate) : "",
+  );
   // Notes are edited as plain text in Monaco; legacy rich-text notes flatten
   // (text and line breaks kept) the first time they're opened.
   const [noteMarkdown, setNoteMarkdown] = useState(() => noteToPlainText(item.session?.noteMarkdown ?? ""));
@@ -1624,7 +1634,15 @@ function TaskRow({
       return;
     }
 
-    onMark(item.id, feelingScore, reviewAfterDays, noteMarkdown, noteSyntax);
+    const trimmed = passRate.trim();
+    onMark(
+      item.id,
+      feelingScore,
+      reviewAfterDays,
+      noteMarkdown,
+      noteSyntax,
+      trimmed === "" ? null : Number(trimmed),
+    );
     // Notes are on their way to the server; drop the crash-safety drafts.
     try {
       localStorage.removeItem(draftKeyMd);
@@ -1722,17 +1740,39 @@ function TaskRow({
               </button>
             ))}
           </div>
-          <label className="mt-3 flex items-center gap-2 text-sm text-fg-muted">
-            几天后复习
-            <input
-              type="number"
-              min={1}
-              max={60}
-              value={reviewAfterDays}
-              onChange={(event) => setReviewAfterDays(Math.max(1, Number(event.target.value) || 1))}
-              className="h-9 w-20 rounded-md border border-line-strong px-2 text-sm"
-            />
-          </label>
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-fg-muted">
+            <label className="flex items-center gap-2">
+              几天后复习
+              <input
+                type="number"
+                min={1}
+                max={60}
+                value={reviewAfterDays}
+                onChange={(event) => setReviewAfterDays(Math.max(1, Number(event.target.value) || 1))}
+                className="h-9 w-20 rounded-md border border-line-strong px-2 text-sm"
+              />
+            </label>
+            {/* 通过率：机考是部分给分，「思路对但只过 60%」和「一次全过」是两回事，
+                反馈分分不出来。留空表示没填。 */}
+            <label className="flex items-center gap-2">
+              通过率
+              <span className="inline-flex items-center">
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={passRate}
+                  onChange={(event) => setPassRate(event.target.value)}
+                  placeholder="选填"
+                  title="判题机给的通过率，手动填 0-100；留空表示不记"
+                  className="h-9 w-20 rounded-l-md border border-line-strong px-2 text-sm"
+                />
+                <span className="inline-flex h-9 items-center rounded-r-md border border-l-0 border-line-strong px-2 text-xs text-fg-subtle">
+                  %
+                </span>
+              </span>
+            </label>
+          </div>
           <div className="mt-3 grid gap-3 lg:grid-cols-2">
             <div className="text-sm text-fg-muted">
               <span className="inline-flex items-center gap-1 font-medium text-fg">
@@ -1771,6 +1811,7 @@ function TaskRow({
                       <div className="flex items-center gap-2 text-fg-subtle">
                         <span>{entry.completedAt.slice(0, 10)}</span>
                         {typeof entry.feelingScore === "number" ? <span>· 反馈 {entry.feelingScore}/5</span> : null}
+                        {typeof entry.passRate === "number" ? <span>· 通过率 {entry.passRate}%</span> : null}
                       </div>
                       {entry.noteMarkdown ? (
                         <div className="mt-2">

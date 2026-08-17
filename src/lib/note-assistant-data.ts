@@ -35,7 +35,8 @@ export async function recentSessions(days = 14, limit = 40) {
       idea ? `思路: ${idea.replace(/\s+/g, " ").slice(0, 300)}` : "思路: (空)",
       syntax ? `语法: ${syntax.replace(/\s+/g, " ").slice(0, 300)}` : "语法: (空)",
     ].join(" | ");
-    return `${toDateKey(row.completedAt)} ${label(row.problem)} [${topicForFrontendId(row.problem.frontendId)}] 反馈${row.feelingScore ?? "-"} ${row.spentMinutes}分钟 ${notes}`;
+    const rate = typeof row.passRate === "number" ? ` 通过率${row.passRate}%` : "";
+    return `${toDateKey(row.completedAt)} ${label(row.problem)} [${topicForFrontendId(row.problem.frontendId)}] 反馈${row.feelingScore ?? "-"}${rate} ${row.spentMinutes}分钟 ${notes}`;
   });
   return `反馈分含义: ${SCORE_MEANING}（越高越不熟）\n最近 ${days} 天做题记录（新到旧，共 ${rows.length} 条）:\n${lines.join("\n")}`;
 }
@@ -96,6 +97,7 @@ export async function problemHistory(frontendId: number) {
         select: {
           completedAt: true,
           feelingScore: true,
+          passRate: true,
           spentMinutes: true,
           noteMarkdown: true,
           noteSyntax: true,
@@ -114,7 +116,8 @@ export async function problemHistory(frontendId: number) {
   const blocks = problem.sessions.map((session) => {
     const idea = (session.noteMarkdown ?? "").trim() || "(空)";
     const syntax = (session.noteSyntax ?? "").trim() || "(空)";
-    return `【${toDateKey(session.completedAt)} 反馈${session.feelingScore ?? "-"} ${session.spentMinutes}分钟】\n思路: ${idea}\n语法: ${syntax}`;
+    const rate = typeof session.passRate === "number" ? ` 通过率${session.passRate}%` : "";
+    return `【${toDateKey(session.completedAt)} 反馈${session.feelingScore ?? "-"}${rate} ${session.spentMinutes}分钟】\n思路: ${idea}\n语法: ${syntax}`;
   });
   return `${label(problem)} [${problem.tags}]\n${blocks.join("\n\n")}`;
 }

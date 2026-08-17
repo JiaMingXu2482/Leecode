@@ -188,6 +188,7 @@ const optionalColumns = [
   `ALTER TABLE "DailyPlan" ADD COLUMN "newFilledAt" DATETIME`,
   `ALTER TABLE "AppSettings" ADD COLUMN "restWeekdays" TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE "AppSettings" ADD COLUMN "reviewMode" TEXT NOT NULL DEFAULT 'CURVE'`,
+  `ALTER TABLE "StudySession" ADD COLUMN "passRate" INTEGER`,
 ];
 
 async function main() {

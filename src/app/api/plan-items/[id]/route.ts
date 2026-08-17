@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAuthorizedRequest } from "@/lib/auth";
 import { addUtcDays, startOfUtcDay, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
+import { normalizePassRate, resolvePassRate } from "@/lib/pass-rate";
 import {
   calculateFeelingScoreReview,
   type FeelingScore,
@@ -22,6 +23,7 @@ function normalizeFeelingScore(value: unknown): FeelingScore | null {
   return value as FeelingScore;
 }
 
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -35,6 +37,7 @@ export async function PATCH(
     completed?: boolean;
     feelingScore?: number;
     reviewAfterDays?: number;
+    passRate?: number | null;
     noteMarkdown?: string;
     noteSyntax?: string;
   };
@@ -57,6 +60,10 @@ export async function PATCH(
       { error: "feelingScore must be an integer from 0 to 5" },
       { status: 400 },
     );
+  }
+
+  if (typeof body.passRate !== "undefined" && !normalizePassRate(body.passRate).ok) {
+    return NextResponse.json({ error: "通过率必须是 0-100 的数字" }, { status: 400 });
   }
 
   if (feelingScore === null) {
@@ -92,6 +99,8 @@ export async function PATCH(
     : review.consecutiveStrong;
   const noteMarkdown = body.noteMarkdown ?? existingSession?.noteMarkdown ?? "";
   const noteSyntax = body.noteSyntax ?? existingSession?.noteSyntax ?? "";
+  const resolved = resolvePassRate(body.passRate, existingSession?.passRate);
+  const nextPassRate = resolved.ok ? resolved.value : null;
 
   const [updated] = await db.$transaction([
     db.planItem.update({
@@ -105,6 +114,7 @@ export async function PATCH(
         rating,
         feelingScore,
         reviewAfterDays: review.reviewAfterDays,
+        passRate: nextPassRate,
         noteMarkdown,
         noteSyntax,
       },
@@ -115,6 +125,7 @@ export async function PATCH(
         rating,
         feelingScore,
         reviewAfterDays: review.reviewAfterDays,
+        passRate: nextPassRate,
         spentMinutes: Math.max(1, item.estimatedMinutes),
         noteMarkdown,
         noteSyntax,

@@ -281,7 +281,7 @@ export async function getDashboardData(view: DashboardView = "today") {
   // ships to /history alone; the today view doesn't render this at all.
   const weekHistoryMap = new Map<
     string,
-    { problemId: string; frontendId: number; titleCn: string; difficulty: string; kind: string; feelingScore: number | null; noteMarkdown: string; noteSyntax: string; completedAt: string }[]
+    { problemId: string; frontendId: number; titleCn: string; difficulty: string; kind: string; feelingScore: number | null; passRate: number | null; noteMarkdown: string; noteSyntax: string; completedAt: string }[]
   >();
   if (wantWeekly || wantHistory) {
     for (const session of recentSessions) {
@@ -294,6 +294,7 @@ export async function getDashboardData(view: DashboardView = "today") {
         difficulty: session.problem.difficulty,
         kind: session.kind,
         feelingScore: session.feelingScore,
+        passRate: session.passRate,
         noteMarkdown: wantHistory ? session.noteMarkdown : "",
         noteSyntax: wantHistory ? session.noteSyntax : "",
         completedAt: session.completedAt.toISOString(),
@@ -408,6 +409,7 @@ export async function getDashboardData(view: DashboardView = "today") {
               ? {
                   feelingScore: session.feelingScore,
                   reviewAfterDays: session.reviewAfterDays,
+                  passRate: session.passRate,
                   noteMarkdown: session.noteMarkdown,
                   noteSyntax: session.noteSyntax,
                 }
@@ -419,6 +421,7 @@ export async function getDashboardData(view: DashboardView = "today") {
               .map((entry) => ({
                 completedAt: entry.completedAt.toISOString(),
                 feelingScore: entry.feelingScore,
+                passRate: entry.passRate,
                 noteMarkdown: entry.noteMarkdown,
                 noteSyntax: entry.noteSyntax,
               })),

@@ -116,6 +116,11 @@ export default async function ProblemDetailPage({
                       {typeof session.feelingScore === "number" ? (
                         <span className="text-xs text-fg-subtle">做题感觉 {session.feelingScore}/5</span>
                       ) : null}
+                      {typeof session.passRate === "number" ? (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-fg-subtle">
+                          通过率 {session.passRate}%
+                        </span>
+                      ) : null}
                     </span>
                     <span className="text-xs text-fg-subtle">
                       {session.spentMinutes}m · {session.completedAt.toISOString().slice(0, 10)}
