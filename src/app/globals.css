@@ -266,3 +266,17 @@ textarea {
 .md-compact td {
   padding: 0.25rem 0.4rem;
 }
+
+/* 笔记里粘贴的图片。截图往往比正文栏宽，缩到容器宽度即可；聊天气泡里再小一档。 */
+.md-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0.9rem 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--muted);
+}
+.md-compact img {
+  margin: 0.5rem 0;
+}

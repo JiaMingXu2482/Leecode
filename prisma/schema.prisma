@@ -242,3 +242,15 @@ model AppSettings {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 }
+
+// 笔记里粘贴的图片。存进 SQLite 而不是内联 base64：一张截图 base64 之后就能吃掉
+// AlgoNote.contentMarkdown 那 20 万字上限的大半。存库的好处是和笔记在同一个
+// Docker volume 里，备份/迁移一起走，不用额外挂载目录。
+// 正文里通过 ![](/api/note-images/<id>) 引用。
+model NoteImage {
+  id        String   @id @default(cuid())
+  mimeType  String
+  size      Int
+  data      Bytes
+  createdAt DateTime @default(now())
+}

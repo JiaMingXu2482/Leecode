@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { AlgoNoteSummary } from "@/lib/algo-notes";
 import { attachCopyButtons } from "@/lib/code-copy";
 import { markdownToHtml } from "@/lib/markdown";
+import { uploadNoteImage } from "@/lib/note-image-upload";
 import { boxAfterDrag, boxAfterResize, isPanelBox, type PanelBox } from "@/lib/panel-box";
 
 // Monaco is heavy and only needed once the user actually edits.
@@ -522,6 +523,7 @@ function NoteEditor({
   onCancel: () => void;
 }) {
   const [preview, setPreview] = useState(true);
+  const [imageError, setImageError] = useState("");
   const rendered = useMemo(() => markdownToHtml(draft.contentMarkdown), [draft.contentMarkdown]);
 
   return (
@@ -568,6 +570,7 @@ function NoteEditor({
         </button>
       </div>
 
+      {imageError ? <p className="mt-2 text-xs text-red-500">{imageError}</p> : null}
       <div className={`mt-3 grid gap-3 ${preview ? "xl:grid-cols-2" : ""}`}>
         <MonacoNoteEditor
           value={draft.contentMarkdown}
@@ -575,6 +578,21 @@ function NoteEditor({
           height="32rem"
           draftKey={DRAFT_KEY}
           onChange={(next) => onChange({ ...draft, contentMarkdown: next })}
+          onPasteImage={async (file) => {
+            setImageError("");
+            const result = await uploadNoteImage(file, (image) =>
+              fetch("/api/note-images", {
+                method: "POST",
+                headers: { "content-type": image.type },
+                body: image,
+              }),
+            );
+            if (!result.ok) {
+              setImageError(result.error);
+              return null;
+            }
+            return result.markdown;
+          }}
         />
         {preview ? (
           <div className="max-h-[32rem] overflow-auto rounded-md border border-line p-4">

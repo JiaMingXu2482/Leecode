@@ -2,6 +2,7 @@
 
 import Editor, { loader } from "@monaco-editor/react";
 import { useEffect, useRef, useState } from "react";
+import { imageFilesFrom } from "@/lib/note-image-upload";
 import { noteToPlainText } from "@/lib/notes";
 
 // Serve Monaco's assets from our own origin — the default jsdelivr CDN is
@@ -17,6 +18,7 @@ export default function MonacoNoteEditor({
   draftKey,
   language = "cpp",
   height = "28rem",
+  onPasteImage,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -26,6 +28,9 @@ export default function MonacoNoteEditor({
   // 题目笔记写的是 C++；算法总结写的是 Markdown。
   language?: string;
   height?: string;
+  // 粘贴/拖入图片时调用，返回要插入光标处的 Markdown（失败返回 null）。
+  // 只有算法总结页传它；题目笔记不需要图片。
+  onPasteImage?: (file: File) => Promise<string | null>;
 }) {
   const [initial] = useState(() => {
     let text = noteToPlainText(value);
@@ -65,6 +70,52 @@ export default function MonacoNoteEditor({
         defaultLanguage={language}
         theme={dark ? "vs-dark" : "light"}
         defaultValue={initial}
+        onMount={(editor) => {
+          if (!onPasteImage) {
+            return;
+          }
+          // Monaco 自己处理 paste，但剪贴板里的图片它直接丢掉。在编辑器的 DOM
+          // 节点上捕获 paste/drop，发现图片就拦下来，上传完把 Markdown 插到光标处。
+          const node = editor.getDomNode();
+          if (!node) {
+            return;
+          }
+          async function insert(files: File[]) {
+            for (const file of files) {
+              const markdown = await onPasteImage!(file);
+              if (!markdown) {
+                continue;
+              }
+              const selection = editor.getSelection();
+              if (!selection) {
+                continue;
+              }
+              editor.executeEdits("paste-image", [
+                { range: selection, text: markdown, forceMoveMarkers: true },
+              ]);
+              editor.focus();
+            }
+          }
+          node.addEventListener("paste", (event) => {
+            const files = imageFilesFrom([...(event.clipboardData?.items ?? [])]);
+            if (!files.length) {
+              return; // 普通文本粘贴，交给 Monaco
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            void insert(files);
+          });
+          node.addEventListener("dragover", (event) => event.preventDefault());
+          node.addEventListener("drop", (event) => {
+            const files = imageFilesFrom([...(event.dataTransfer?.items ?? [])]);
+            if (!files.length) {
+              return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            void insert(files);
+          });
+        }}
         onChange={(next) => {
           const text = next ?? "";
           onChange(text);

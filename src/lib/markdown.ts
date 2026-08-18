@@ -57,6 +57,12 @@ function safeHref(raw: string) {
   return /^(https?:\/\/|\/|#)/i.test(href) ? href : "";
 }
 
+// escapeHtml 只处理 & < >，不管引号 —— 放进元素内容里没问题，但放进属性值里
+// 一个双引号就能闯出属性、注入 onerror 之类。凡是往 attr 里塞的都必须走这个。
+function escapeAttr(value: string) {
+  return escapeHtml(value).replace(/"/g, "&quot;");
+}
+
 // 行内语法。顺序有讲究：行内代码先切出来（里面一律不再处理），然后是 Markdown
 // 链接（换成 <Ln> 占位符保护起来），再是题号，最后粗体/斜体，末尾还原链接。
 //
@@ -72,14 +78,24 @@ function renderInline(text: string) {
       }
       let html = escapeHtml(part);
 
-      const links: string[] = [];
+      const slots: string[] = [];
+      // 图片必须排在链接前面：!\[alt\](src) 的后半段本身就是合法链接语法，
+      // 先跑链接会把它吃掉、只剩一个孤零零的 "!"。
+      html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (match, alt: string, src: string) => {
+        const safe = safeHref(src);
+        if (!safe) {
+          return match;
+        }
+        slots.push(`<img src="${escapeAttr(safe)}" alt="${escapeAttr(alt)}" loading="lazy">`);
+        return `<L${slots.length - 1}>`;
+      });
       html = html.replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, (match, label: string, href: string) => {
         const safe = safeHref(href);
         if (!safe) {
           return match;
         }
-        links.push(`<a href="${escapeHtml(safe)}" target="_blank" rel="noreferrer">${label}</a>`);
-        return `<L${links.length - 1}>`;
+        slots.push(`<a href="${escapeAttr(safe)}" target="_blank" rel="noreferrer">${label}</a>`);
+        return `<L${slots.length - 1}>`;
       });
 
       html = linkProblemRefs(html);
@@ -87,7 +103,7 @@ function renderInline(text: string) {
       html = html.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
       html = html.replace(/~~([^~]+)~~/g, "<del>$1</del>");
 
-      return html.replace(/<L(\d+)>/g, (_match, slot: string) => links[Number(slot)]);
+      return html.replace(/<L(\d+)>/g, (_match, slot: string) => slots[Number(slot)]);
     })
     .join("");
 }

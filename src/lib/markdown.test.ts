@@ -79,6 +79,51 @@ describe("markdownToHtml", () => {
   });
 });
 
+describe("图片", () => {
+  it("渲染 ![alt](src)", () => {
+    const html = render("![邻接表](/api/note-images/abc123)");
+    expect(html).toContain('<img src="/api/note-images/abc123"');
+    expect(html).toContain('alt="邻接表"');
+    expect(html).toContain('loading="lazy"');
+  });
+
+  it("图片不会被链接语法吃掉（! 不能落单）", () => {
+    const html = render("![图](/x.png)");
+    expect(html).toContain("<img");
+    expect(html).not.toContain("!<a");
+    expect(html).not.toMatch(/>!</);
+  });
+
+  it("同一行里图片和链接都能认", () => {
+    const html = render("看图 ![图](/a.png) 和 [文档](https://example.com)");
+    expect(html).toContain('<img src="/a.png"');
+    expect(html).toContain('href="https://example.com"');
+  });
+
+  it("挡掉 javascript: 之类的 src", () => {
+    const html = render("![x](javascript:alert(1))");
+    expect(html).not.toContain("<img");
+  });
+
+  it("属性值里的引号必须转义，不能闯出属性", () => {
+    // escapeHtml 不管引号，直接插进 attr 就能注入 onerror
+    const html = render('![a" onerror="alert(1)](/x.png)');
+    expect(html).not.toContain('onerror="alert(1)"');
+    expect(html).toContain("&quot;");
+  });
+
+  it("src 里的引号同样要转义", () => {
+    const html = render('![x](/a.png" onerror="alert(1))');
+    expect(html).not.toContain('onerror="alert(1)"');
+  });
+
+  it("代码块里的图片语法不渲染", () => {
+    const html = render(["```", "![图](/a.png)", "```"].join("\n"));
+    expect(html).not.toContain("<img");
+    expect(html).toContain("![图](/a.png)");
+  });
+});
+
 describe("题号自动链接", () => {
   it("#53 这种带井号的直接链", () => {
     expect(render("看 #53 就懂了")).toContain('href="/problems/by-number/53"');

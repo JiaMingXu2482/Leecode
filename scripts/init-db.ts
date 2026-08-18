@@ -152,6 +152,13 @@ const statements = [
     "updatedAt" DATETIME NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS "AlgoNote_category_sortOrder_idx" ON "AlgoNote"("category", "sortOrder")`,
+  `CREATE TABLE IF NOT EXISTS "NoteImage" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "mimeType" TEXT NOT NULL,
+    "size" INTEGER NOT NULL,
+    "data" BLOB NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "Problem_frontendId_key" ON "Problem"("frontendId")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "Problem_slug_key" ON "Problem"("slug")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "ProblemProgress_problemId_key" ON "ProblemProgress"("problemId")`,
