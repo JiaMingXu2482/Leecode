@@ -60,6 +60,74 @@ export default function MonacoNoteEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 粘贴/拖入图片。监听挂在 document 的**捕获阶段**，不是编辑器节点的冒泡阶段：
+  // Monaco 自己在内部的 edit-context 节点上注册了 paste 并立刻 preventDefault，
+  // 冒泡阶段的监听要看它有没有 stopPropagation、节点挂在哪、用的是 EditContext
+  // 还是 textarea 实现 —— 这些都随版本变。捕获阶段在所有后代监听之前跑，
+  // 与这些细节无关。用 hasTextFocus() 把作用范围限定在本编辑器聚焦时。
+  const editorRef = useRef<Parameters<NonNullable<React.ComponentProps<typeof Editor>["onMount"]>>[0] | null>(null);
+  useEffect(() => {
+    if (!onPasteImage) {
+      return;
+    }
+    async function insert(files: File[]) {
+      const editor = editorRef.current;
+      if (!editor) {
+        return;
+      }
+      for (const file of files) {
+        const markdown = await onPasteImage!(file);
+        const selection = editor.getSelection();
+        if (!markdown || !selection) {
+          continue;
+        }
+        editor.executeEdits("paste-image", [
+          { range: selection, text: markdown, forceMoveMarkers: true },
+        ]);
+        editor.focus();
+      }
+    }
+    function onPaste(event: ClipboardEvent) {
+      if (!editorRef.current?.hasTextFocus()) {
+        return;
+      }
+      const files = imageFilesFrom([...(event.clipboardData?.items ?? [])]);
+      if (!files.length) {
+        return; // 普通文本粘贴，交给 Monaco
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void insert(files);
+    }
+    function onDrop(event: DragEvent) {
+      const node = editorRef.current?.getDomNode();
+      if (!node || !(event.target instanceof Node) || !node.contains(event.target)) {
+        return;
+      }
+      const files = imageFilesFrom([...(event.dataTransfer?.items ?? [])]);
+      if (!files.length) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void insert(files);
+    }
+    function onDragOver(event: DragEvent) {
+      const node = editorRef.current?.getDomNode();
+      if (node && event.target instanceof Node && node.contains(event.target)) {
+        event.preventDefault();
+      }
+    }
+    document.addEventListener("paste", onPaste, true);
+    document.addEventListener("drop", onDrop, true);
+    document.addEventListener("dragover", onDragOver, true);
+    return () => {
+      document.removeEventListener("paste", onPaste, true);
+      document.removeEventListener("drop", onDrop, true);
+      document.removeEventListener("dragover", onDragOver, true);
+    };
+  }, [onPasteImage]);
+
   const dark =
     typeof document !== "undefined" && document.documentElement.classList.contains("dark");
 
@@ -71,50 +139,7 @@ export default function MonacoNoteEditor({
         theme={dark ? "vs-dark" : "light"}
         defaultValue={initial}
         onMount={(editor) => {
-          if (!onPasteImage) {
-            return;
-          }
-          // Monaco 自己处理 paste，但剪贴板里的图片它直接丢掉。在编辑器的 DOM
-          // 节点上捕获 paste/drop，发现图片就拦下来，上传完把 Markdown 插到光标处。
-          const node = editor.getDomNode();
-          if (!node) {
-            return;
-          }
-          async function insert(files: File[]) {
-            for (const file of files) {
-              const markdown = await onPasteImage!(file);
-              if (!markdown) {
-                continue;
-              }
-              const selection = editor.getSelection();
-              if (!selection) {
-                continue;
-              }
-              editor.executeEdits("paste-image", [
-                { range: selection, text: markdown, forceMoveMarkers: true },
-              ]);
-              editor.focus();
-            }
-          }
-          node.addEventListener("paste", (event) => {
-            const files = imageFilesFrom([...(event.clipboardData?.items ?? [])]);
-            if (!files.length) {
-              return; // 普通文本粘贴，交给 Monaco
-            }
-            event.preventDefault();
-            event.stopPropagation();
-            void insert(files);
-          });
-          node.addEventListener("dragover", (event) => event.preventDefault());
-          node.addEventListener("drop", (event) => {
-            const files = imageFilesFrom([...(event.dataTransfer?.items ?? [])]);
-            if (!files.length) {
-              return;
-            }
-            event.preventDefault();
-            event.stopPropagation();
-            void insert(files);
-          });
+          editorRef.current = editor;
         }}
         onChange={(next) => {
           const text = next ?? "";
