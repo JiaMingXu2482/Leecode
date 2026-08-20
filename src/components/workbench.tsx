@@ -1288,7 +1288,16 @@ function TopicsView({
       .map((id) => byId.get(idBase + id))
       .filter((problem): problem is DashboardData["problems"][number] => Boolean(problem));
     const enabledCount = items.filter((problem) => problem.isEnabled !== false).length;
-    return { name: group.name, items, enabledCount, total: items.length, allExcluded: items.length > 0 && enabledCount === 0 };
+    // 已完成 = 做过至少一次（有 StudySession），和上方题库标签页的进度同一口径。
+    const doneCount = items.filter((problem) => problem.sessionCount > 0).length;
+    return {
+      name: group.name,
+      items,
+      enabledCount,
+      doneCount,
+      total: items.length,
+      allExcluded: items.length > 0 && enabledCount === 0,
+    };
   });
   // Active topics keep study-plan order; fully-excluded topics sink to the bottom.
   const sorted = groups
@@ -1349,7 +1358,9 @@ function TopicsView({
               >
                 <ChevronDown size={16} className={`shrink-0 text-fg-subtle transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
                 <span className="font-semibold">{group.name}</span>
-                <span className="text-xs text-fg-subtle">{group.enabledCount}/{group.total} 刷</span>
+                <span className="text-xs text-fg-subtle" title="已完成 / 总计">
+                  {group.doneCount}/{group.total} 已完成
+                </span>
               </button>
               <div className="flex shrink-0 items-center gap-2">
               <button

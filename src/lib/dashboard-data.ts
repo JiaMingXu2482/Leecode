@@ -75,6 +75,7 @@ export async function getDashboardData(view: DashboardView = "today") {
     dueReviews,
     sessions,
     noteCounts,
+    sessionCounts,
     codeCounts,
     feelingStats,
     weekDailyPlans,
@@ -132,6 +133,14 @@ export async function getDashboardData(view: DashboardView = "today") {
             _count: { _all: true },
           })
         : Promise.resolve([]),
+      // 「已完成」= 做过至少一次，和上方题库标签页的 sessions:{some:{}} 同一口径。
+      // 不能用 progress.isAccepted：那个在反馈选「忘了」时是 false，但题确实做过了。
+      wantProblems
+        ? db.studySession.groupBy({
+            by: ["problemId"],
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
       wantProblems
         ? db.leetCodeSubmission.groupBy({
             by: ["problemId"],
@@ -170,6 +179,7 @@ export async function getDashboardData(view: DashboardView = "today") {
         : Promise.resolve([]),
     ]);
   const noteCountMap = new Map(noteCounts.map((item) => [item.problemId, item._count._all]));
+  const sessionCountMap = new Map(sessionCounts.map((item) => [item.problemId, item._count._all]));
   const codeCountMap = new Map(codeCounts.map((item) => [item.problemId, item._count._all]));
   const feelingStatMap = new Map(
     feelingStats.map((item) => [
@@ -513,6 +523,7 @@ export async function getDashboardData(view: DashboardView = "today") {
       acceptedRate: wantWeekly ? 0 : problem.progress?.acceptedRate ?? 0,
       reviewRiskScore: wantWeekly ? 0 : problem.progress?.reviewRiskScore ?? 0,
       noteCount: wantWeekly ? 0 : noteCountMap.get(problem.id) ?? 0,
+      sessionCount: wantWeekly ? 0 : sessionCountMap.get(problem.id) ?? 0,
       codeCount: wantWeekly ? 0 : codeCountMap.get(problem.id) ?? 0,
       avgFeelingScore: wantWeekly ? null : feelingStatMap.get(problem.id)?.avg ?? null,
       feelingSessionCount: wantWeekly ? 0 : feelingStatMap.get(problem.id)?.count ?? 0,
