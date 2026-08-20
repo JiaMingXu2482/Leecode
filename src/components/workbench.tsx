@@ -411,7 +411,7 @@ export function Workbench({
         />
       ) : null}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-44 flex-col border-r border-line bg-surface px-2.5 py-5 transition-transform duration-200 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-36 flex-col border-r border-line bg-surface px-2 py-5 transition-transform duration-200 ${
           sidebarOpen === null
             ? "-translate-x-full lg:translate-x-0"
             : sidebarOpen
@@ -419,9 +419,10 @@ export function Workbench({
               : "-translate-x-full"
         }`}
       >
-        <div className="flex items-center px-1">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white">
-            <Target size={18} />
+        {/* px-3 和下面的导航项一致，logo 左边缘正好对齐导航图标 */}
+        <div className="flex items-center px-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white">
+            <Target size={17} />
           </div>
         </div>
         <nav className="mt-8 space-y-1">
@@ -460,7 +461,7 @@ export function Workbench({
 
       <main
         className={`transition-[padding] duration-200 ${
-          sidebarOpen === false ? "lg:pl-0" : "lg:pl-44"
+          sidebarOpen === false ? "lg:pl-0" : "lg:pl-36"
         }`}
       >
         <header className="sticky top-0 z-10 border-b border-line bg-surface/95 px-5 py-4 backdrop-blur">
