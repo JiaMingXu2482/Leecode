@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { TOPIC_GROUPS } from "@/lib/topics";
+import { ALL_CATEGORY_NAMES } from "@/lib/problem-sets";
 
 // Default per-day new-problem quota (overridable via settings / the assistant).
 // 4 牛客 problems a day, picked from four different categories.
@@ -42,7 +42,9 @@ function parseRestWeekdays(raw: string | undefined): number[] {
   return [...seen].sort((a, b) => a - b);
 }
 
-const VALID_NAMES = new Set(TOPIC_GROUPS.map((group) => group.name));
+// 三个题库的分类都算合法：每日新题来自华为题单/牛客，只认 Hot100 分类名的话，
+// 「把 DFS(图论) 设为优先」会被这里静默丢掉。
+const VALID_NAMES = ALL_CATEGORY_NAMES;
 
 export function sanitizeCategories(names: unknown): string[] | null {
   if (!Array.isArray(names)) {

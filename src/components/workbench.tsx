@@ -338,6 +338,26 @@ export function Workbench({
   }
 
 
+  // 今日任务的「不做此题」：看了题目发现看不懂或太难，这题就不做了。
+  // 和顺延不同，这是把题设为不刷并从今后的计划里清掉，否则明天又会被排回来。
+  async function skipItem(id: string, titleCn: string) {
+    if (!window.confirm(`不做「${titleCn}」？会把它设为不刷，并从今后的计划里移除。可以在刷题计划页勾回来。`)) {
+      return;
+    }
+    setBusy(`/api/plan-items/${id}/skip`);
+    setMessage("");
+    const response = await fetch(`/api/plan-items/${id}/skip`, { method: "POST" });
+    setBusy("");
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      setMessage(payload.error ?? "操作失败");
+      return;
+    }
+    lastMutationAt = Date.now();
+    setMessage(`已跳过「${titleCn}」`);
+    router.refresh();
+  }
+
   // 刷题计划页「加入今天」：把任意一道题挂到今天的计划上。复用拖拽用的那个
   // 接口，它只认 problemId，三个题库都通用；已经在今天了就是 no-op。
   async function addProblemToToday(problemId: string) {
@@ -391,7 +411,7 @@ export function Workbench({
         />
       ) : null}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-52 flex-col border-r border-line bg-surface px-3 py-5 transition-transform duration-200 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-44 flex-col border-r border-line bg-surface px-2.5 py-5 transition-transform duration-200 ${
           sidebarOpen === null
             ? "-translate-x-full lg:translate-x-0"
             : sidebarOpen
@@ -399,13 +419,9 @@ export function Workbench({
               : "-translate-x-full"
         }`}
       >
-        <div className="flex items-center gap-2.5 px-1">
+        <div className="flex items-center px-1">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white">
             <Target size={18} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold">Hot100 复习计划</div>
-            <div className="text-xs text-fg-subtle">Ebbinghaus Planner</div>
           </div>
         </div>
         <nav className="mt-8 space-y-1">
@@ -444,7 +460,7 @@ export function Workbench({
 
       <main
         className={`transition-[padding] duration-200 ${
-          sidebarOpen === false ? "lg:pl-0" : "lg:pl-52"
+          sidebarOpen === false ? "lg:pl-0" : "lg:pl-44"
         }`}
       >
         <header className="sticky top-0 z-10 border-b border-line bg-surface/95 px-5 py-4 backdrop-blur">
@@ -493,7 +509,7 @@ export function Workbench({
 
         <div className="px-5 py-5">
           {active === "today" ? (
-            <TodayView data={data} onMark={markItem} completion={completion} />
+            <TodayView data={data} onMark={markItem} onSkip={skipItem} completion={completion} />
           ) : null}
           {active === "weekly" ? (
             <WeeklyView
@@ -533,8 +549,10 @@ export function Workbench({
 function TodayView({
   data,
   onMark,
+  onSkip,
 }: {
   data: DashboardData;
+  onSkip: (id: string, titleCn: string) => void;
   onMark: (
     id: string,
     feelingScore: number,
@@ -584,7 +602,7 @@ function TodayView({
         {items.length || data.todayExtra.length ? (
           <div className="divide-y divide-line">
             {items.map((item) => (
-              <TaskRow key={item.id} item={item} onMark={onMark} />
+              <TaskRow key={item.id} item={item} onMark={onMark} onSkip={onSkip} />
             ))}
             {data.todayExtra.map((extra) => (
               <ExtraDoneRow key={extra.problemId} extra={extra} />
@@ -1709,8 +1727,10 @@ const feelingLabels = ["AC（快）", "AC（慢）", "无提示 AC", "提交错�
 function TaskRow({
   item,
   onMark,
+  onSkip,
 }: {
   item: NonNullable<DashboardData["todayPlan"]>["items"][number];
+  onSkip: (id: string, titleCn: string) => void;
   onMark: (
     id: string,
     feelingScore: number,
@@ -1796,7 +1816,7 @@ function TaskRow({
             </span>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2 lg:w-[260px] lg:shrink-0">
+        <div className="grid grid-cols-3 gap-2 lg:w-[340px] lg:shrink-0">
           <button
             onClick={() => setFeedbackOpen((open) => !open)}
             title="点开填写或编辑做题反馈"
@@ -1816,6 +1836,14 @@ function TaskRow({
             <ExternalLink size={14} />
             去刷题
           </a>
+          <button
+            onClick={() => onSkip(item.id, item.problem.titleCn)}
+            disabled={item.isCompleted}
+            title="看不懂或太难，这题不做了：设为不刷并从今后的计划里移除"
+            className="inline-flex h-9 w-full items-center justify-center whitespace-nowrap rounded-md border border-line-strong px-2 text-sm font-medium text-fg-subtle hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-40 dark:hover:border-red-500/30 dark:hover:bg-red-500/15 dark:hover:text-red-400"
+          >
+            不做此题
+          </button>
         </div>
       </div>
       {feedbackOpen ? (

@@ -1,11 +1,18 @@
-import { Difficulty, PlanItemKind } from "@prisma/client";
+import { Difficulty, PlanItemKind, Prisma } from "@prisma/client";
 import { addUtcDays, fromDateKey, isoWeekday, startOfUtcDay, toDateKey, weekdayIndex } from "@/lib/dates";
 import { getDb } from "@/lib/db";
 import { orderDailyNewPicks } from "@/lib/new-problem-picker";
 import { orderTopicMatchedReviews } from "@/lib/review-picker";
 import { calculateReviewRiskScore } from "@/lib/risk";
 import { getPlanSettings } from "@/lib/settings";
-import { topicForFrontendId, TOPIC_GROUPS } from "@/lib/topics";
+import { topicForFrontendId } from "@/lib/topics";
+import {
+  groupsNamed,
+  problemLabel,
+  renderCategoryCatalogue,
+  SOURCE_LABEL,
+  sourceOfFrontendId,
+} from "@/lib/problem-sets";
 import {
   deletePlanItemsRestoringMinutes,
   loadWeekPlans,
@@ -458,20 +465,27 @@ export async function setProblemReviewDays(frontendId: number, days: number) {
 
 // Exclude / restore a whole Hot100 category (不刷). Excluding also drops its
 // review schedules and upcoming plan items, then tops the week back up.
-export async function setCategoryEnabled(name: string, enabled: boolean) {
+// 分类名在三个题库之间会重名（「动态规划」三家都有）。不指定 source 时，同名的
+// 分类一起处理，并在回复里说清楚动了哪几个题库。
+export async function setCategoryEnabled(name: string, enabled: boolean, source?: string) {
   const db = getDb();
-  const group = TOPIC_GROUPS.find((item) => item.name === name);
-  if (!group) {
-    return { ok: false, message: `未知分类: ${name}（可选: ${TOPIC_GROUPS.map((g) => g.name).join("、")}）` };
+  const matched = groupsNamed(name).filter((group) => !source || group.source === source);
+  if (!matched.length) {
+    return {
+      ok: false,
+      message: `未知分类: ${name}${source ? `（在 ${source} 里）` : ""}。可选分类见:
+${renderCategoryCatalogue()}`,
+    };
   }
+  const frontendIds = matched.flatMap((group) => group.frontendIds);
   await db.problem.updateMany({
-    where: { frontendId: { in: group.ids } },
+    where: { frontendId: { in: frontendIds } },
     data: { isEnabled: enabled },
   });
   if (!enabled) {
     const today = startOfUtcDay(new Date());
     const problems = await db.problem.findMany({
-      where: { frontendId: { in: group.ids } },
+      where: { frontendId: { in: frontendIds } },
       select: { id: true },
     });
     const ids = problems.map((problem) => problem.id);
@@ -483,7 +497,11 @@ export async function setCategoryEnabled(name: string, enabled: boolean) {
     });
     await topUpNewProblems(today);
   }
-  return { ok: true, message: `已${enabled ? "恢复" : "设为不刷"}分类「${name}」` };
+  const where = matched.map((group) => SOURCE_LABEL[group.source]).join("、");
+  return {
+    ok: true,
+    message: `已${enabled ? "恢复" : "设为不刷"}分类「${name}」（${where}，共 ${frontendIds.length} 题）`,
+  };
 }
 
 // Weak problems for recommendations: studied problems whose average feedback
@@ -520,5 +538,117 @@ export async function getWeakProblems() {
   return {
     problems: rows.slice(0, 25),
     weakByCategory: [...byCategory.entries()].sort((a, b) => b[1] - a[1]),
+  };
+}
+
+// 按题库/分类列题，给排题助手选题用。以前助手只能看见 Hot100 的分类树，想从
+// 华为题单里挑题时既不知道有哪些分类、也不知道分类下有哪些题。
+export async function listProblems(options: {
+  source?: string;
+  category?: string;
+  status?: "undone" | "done" | "all";
+  limit?: number;
+}) {
+  const db = getDb();
+  const status = options.status ?? "undone";
+  const limit = Math.min(Math.max(options.limit ?? 40, 1), 100);
+
+  const where: Prisma.ProblemWhereInput = { isEnabled: true };
+  if (options.source) {
+    where.source = options.source;
+  }
+  if (options.category) {
+    const matched = groupsNamed(options.category).filter(
+      (group) => !options.source || group.source === options.source,
+    );
+    if (!matched.length) {
+      return { ok: false as const, message: `未知分类: ${options.category}` };
+    }
+    where.frontendId = { in: matched.flatMap((group) => group.frontendIds) };
+  }
+  if (status === "undone") {
+    where.sessions = { none: {} };
+  } else if (status === "done") {
+    where.sessions = { some: {} };
+  }
+
+  const [total, rows] = await Promise.all([
+    db.problem.count({ where }),
+    db.problem.findMany({
+      where,
+      select: {
+        frontendId: true,
+        titleCn: true,
+        difficulty: true,
+        examOrigin: true,
+        _count: { select: { sessions: true } },
+      },
+      orderBy: { hot100Order: "asc" },
+      take: limit,
+    }),
+  ]);
+
+  return {
+    ok: true as const,
+    total,
+    problems: rows.map((row) => ({
+      label: problemLabel(row.frontendId),
+      titleCn: row.titleCn,
+      difficulty: row.difficulty,
+      category: topicForFrontendId(row.frontendId),
+      source: sourceOfFrontendId(row.frontendId),
+      examOrigin: row.examOrigin,
+      doneCount: row._count.sessions,
+    })),
+  };
+}
+
+// 某道题的做题历史 + 当时写的笔记，给助手判断「这题掌握得怎么样」用。
+export async function getProblemHistory(frontendId: number) {
+  const db = getDb();
+  const problem = await db.problem.findUnique({
+    where: { frontendId },
+    select: {
+      frontendId: true,
+      titleCn: true,
+      difficulty: true,
+      isEnabled: true,
+      examOrigin: true,
+      leetcodeCnUrl: true,
+      reviewSchedule: { select: { nextReviewDate: true, stage: true } },
+      sessions: {
+        orderBy: { completedAt: "desc" },
+        take: 10,
+        select: {
+          completedAt: true,
+          kind: true,
+          feelingScore: true,
+          passRate: true,
+          spentMinutes: true,
+          noteMarkdown: true,
+          noteIdea: true,
+          notePitfall: true,
+          noteComplexity: true,
+          noteLastBlocker: true,
+          noteSyntax: true,
+        },
+      },
+    },
+  });
+  if (!problem) {
+    return { ok: false as const, message: `找不到题号 ${frontendId}` };
+  }
+  return {
+    ok: true as const,
+    label: problemLabel(problem.frontendId),
+    titleCn: problem.titleCn,
+    difficulty: problem.difficulty,
+    category: topicForFrontendId(problem.frontendId),
+    source: sourceOfFrontendId(problem.frontendId),
+    examOrigin: problem.examOrigin,
+    isEnabled: problem.isEnabled,
+    nextReviewDate: problem.reviewSchedule?.nextReviewDate ?? null,
+    stage: problem.reviewSchedule?.stage ?? null,
+    sessions: problem.sessions,
   };
 }
