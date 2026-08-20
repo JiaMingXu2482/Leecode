@@ -419,8 +419,8 @@ export function Workbench({
               : "-translate-x-full"
         }`}
       >
-        {/* px-3 和下面的导航项一致，logo 左边缘正好对齐导航图标 */}
-        <div className="flex items-center px-3">
+        {/* logo 在边栏里水平居中 */}
+        <div className="flex items-center justify-center">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white">
             <Target size={17} />
           </div>
