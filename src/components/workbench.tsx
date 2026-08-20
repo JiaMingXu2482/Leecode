@@ -27,7 +27,7 @@ import {
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { type DragEvent, useEffect, useRef, useState, useTransition } from "react";
+import { type DragEvent, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import type { DashboardData } from "@/lib/dashboard-data";
 import { noteToHtml, noteToPlainText } from "@/lib/notes";
 import { defaultReviewDays, type FeelingScore } from "@/lib/review-scheduler";
@@ -1270,6 +1270,28 @@ function DayPlanList({ items }: { items: DashboardData["weekPlans"][number]["ite
 
 const difficultyCn = { EASY: "简单", MEDIUM: "中等", HARD: "困难" };
 
+// 分类标签里的「全部」，用一个不可能和真实分类重名的值。
+const ALL_TOPICS = "__ALL__";
+
+// 选中的分类记在 localStorage 里，下次进页面还是它。用 useSyncExternalStore 而不是
+// useEffect + setState：服务端快照固定返回 ""（渲染时回退到第一类），客户端读真实值，
+// 首屏不会 hydration 不一致。
+const topicListeners = new Set<() => void>();
+
+function subscribeTopic(listener: () => void) {
+  topicListeners.add(listener);
+  return () => {
+    topicListeners.delete(listener);
+  };
+}
+
+function writeTopic(key: string, value: string) {
+  window.localStorage.setItem(key, value);
+  for (const listener of topicListeners) {
+    listener();
+  }
+}
+
 function TopicsView({
   data,
   onToggleEnabled,
@@ -1288,10 +1310,11 @@ function TopicsView({
   // 回到初始态，重复点击是 no-op（接口按 dailyPlan+problem 去重）。
   const [addedToday, setAddedToday] = useState<Record<string, boolean>>({});
   const [adding, setAdding] = useState("");
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  // Which problem set is on screen. 速成题单 is the default — it's what the
+  // Which problem set is on screen. 华为题单 is the default — it's what the
   // daily plan is drawing from right now.
   const [source, setSource] = useState<"CODEFUN" | "NOWCODER" | "LEETCODE">("CODEFUN");
+  // 顶部分类标签选中的那一类。一次只展示一类 —— 19 个分类全展开的话，每次进页面
+  // 都得先手动折叠前面几类才能看到想刷的。"" = 没有记录，渲染时回退到第一类。
 
   const byId = new Map(data.problems.map((problem) => [problem.frontendId, problem]));
   const topicTree =
@@ -1322,6 +1345,25 @@ function TopicsView({
     .map((group, index) => ({ group, index }))
     .sort((a, b) => (a.group.allExcluded === b.group.allExcluded ? a.index - b.index : a.group.allExcluded ? 1 : -1))
     .map((entry) => entry.group);
+
+  const storageKey = `reviews.topic.${source}`;
+  const selectedTopic = useSyncExternalStore(
+    subscribeTopic,
+    () => window.localStorage.getItem(storageKey) ?? "",
+    () => "",
+  );
+
+  // 选中的分类：优先用记住的，回退到第一类。切题库时分类树换了一套，旧的选中项
+  // 在新树里不存在，同样回退。
+  const activeTopic =
+    sorted.some((group) => group.name === selectedTopic) || selectedTopic === ALL_TOPICS
+      ? selectedTopic
+      : sorted[0]?.name ?? "";
+  const shownGroups = activeTopic === ALL_TOPICS ? sorted : sorted.filter((group) => group.name === activeTopic);
+
+  function pickTopic(name: string) {
+    writeTopic(storageKey, name);
+  }
 
   return (
     <section className="space-y-4">
@@ -1363,23 +1405,53 @@ function TopicsView({
         </label>
       </div>
 
-      {sorted.map((group) => {
-        const isCollapsed = collapsed[group.name] ?? group.allExcluded;
+      {/* 分类筛选：一次只看一类。选中的类记在 localStorage 里，下次进来还是它。 */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {sorted.map((group) => {
+          const isActive = group.name === activeTopic;
+          return (
+            <button
+              key={group.name}
+              onClick={() => pickTopic(group.name)}
+              className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium ${
+                isActive
+                  ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/20 dark:text-blue-300"
+                  : group.allExcluded
+                    ? "border-line text-fg-subtle opacity-60 hover:bg-muted"
+                    : "border-line-strong text-fg-subtle hover:bg-muted"
+              }`}
+            >
+              {group.name}
+              <span className="font-mono opacity-70">
+                {group.doneCount}/{group.total}
+              </span>
+            </button>
+          );
+        })}
+        <button
+          onClick={() => pickTopic(ALL_TOPICS)}
+          className={`inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium ${
+            activeTopic === ALL_TOPICS
+              ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/20 dark:text-blue-300"
+              : "border-line-strong text-fg-subtle hover:bg-muted"
+          }`}
+        >
+          全部
+        </button>
+      </div>
+
+      {shownGroups.map((group) => {
         const ids = group.items.map((problem) => problem.id);
 
         return (
           <div key={group.name} className="overflow-hidden rounded-lg border border-line bg-surface">
             <div className="flex items-center justify-between gap-3 border-b border-line bg-muted px-4 py-3">
-              <button
-                onClick={() => setCollapsed((current) => ({ ...current, [group.name]: !isCollapsed }))}
-                className="flex min-w-0 items-center gap-2 text-left"
-              >
-                <ChevronDown size={16} className={`shrink-0 text-fg-subtle transition-transform ${isCollapsed ? "-rotate-90" : ""}`} />
+              <div className="flex min-w-0 items-center gap-2">
                 <span className="font-semibold">{group.name}</span>
                 <span className="text-xs text-fg-subtle" title="已完成 / 总计">
                   {group.doneCount}/{group.total} 已完成
                 </span>
-              </button>
+              </div>
               <div className="flex shrink-0 items-center gap-2">
               <button
                 onClick={() => onTogglePriority(group.name)}
@@ -1404,8 +1476,7 @@ function TopicsView({
               </button>
               </div>
             </div>
-            {isCollapsed ? null : (
-              <ul>
+            <ul>
                 {group.items.map((problem) => {
                   const excluded = problem.isEnabled === false;
                   return (
@@ -1465,8 +1536,7 @@ function TopicsView({
                     </li>
                   );
                 })}
-              </ul>
-            )}
+            </ul>
           </div>
         );
       })}
