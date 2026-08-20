@@ -47,17 +47,17 @@ type WeekPlans = DashboardData["weekPlans"];
 
 const navItems: { href: string; key: ActiveView; label: string; icon: typeof Target }[] = [
   { href: "/today", key: "today", label: "今日任务", icon: Target },
-  { href: "/weekly", key: "weekly", label: "周计划", icon: CalendarDays },
+  { href: "/weekly", key: "weekly", label: "本周计划", icon: CalendarDays },
   { href: "/history", key: "history", label: "历史笔记", icon: NotebookPen },
   { href: "/reviews", key: "reviews", label: "刷题计划", icon: ListChecks },
   { href: "/algo-notes", key: "algo", label: "算法总结", icon: BookOpen },
-  { href: "/stats", key: "stats", label: "统计", icon: DatabaseZap },
-  { href: "/settings/sync", key: "sync", label: "力扣同步", icon: Settings2 },
+  { href: "/stats", key: "stats", label: "统计数据", icon: DatabaseZap },
+  { href: "/settings/sync", key: "sync", label: "设置", icon: Settings2 },
 ];
 
 const viewTitle: Record<ActiveView, { title: string; subtitle: string }> = {
   today: { title: "今日任务", subtitle: "只看今天要处理的题目，打开力扣后做题，完成后标记已处理即可。" },
-  weekly: { title: "周计划", subtitle: "" },
+  weekly: { title: "本周计划", subtitle: "" },
   history: { title: "历史笔记", subtitle: "按天回顾做过的题、当时的反馈分数和笔记（解题思路 / C++ 语法分两栏）。" },
   reviews: {
     title: "刷题计划",
@@ -67,8 +67,8 @@ const viewTitle: Record<ActiveView, { title: string; subtitle: string }> = {
     title: "算法总结",
     subtitle: "按分类归档的 Markdown 笔记。正文里的题号（#53 / HJ14 / P2352）会自动链到题目详情页。",
   },
-  stats: { title: "统计", subtitle: "每道题的做题反馈平均分，可按分数升序或降序排序。" },
-  sync: { title: "力扣同步", subtitle: "粘贴 leetcode.cn Cookie，同步 AC 状态、提交画像和最近代码。" },
+  stats: { title: "统计数据", subtitle: "每道题的做题反馈平均分，可按分数升序或降序排序。" },
+  sync: { title: "设置", subtitle: "力扣同步、数据备份和版本信息。" },
 };
 
 // Problem number as shown everywhere: "#42" for Hot100, "HJ14" for 牛客,
@@ -391,7 +391,7 @@ export function Workbench({
         />
       ) : null}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-line bg-surface px-4 py-5 transition-transform duration-200 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-52 flex-col border-r border-line bg-surface px-3 py-5 transition-transform duration-200 ${
           sidebarOpen === null
             ? "-translate-x-full lg:translate-x-0"
             : sidebarOpen
@@ -399,17 +399,13 @@ export function Workbench({
               : "-translate-x-full"
         }`}
       >
-        <div className="flex items-start gap-3 px-2">
+        <div className="flex items-center gap-2.5 px-1">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white">
             <Target size={18} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold">Hot100 复习计划</div>
             <div className="text-xs text-fg-subtle">Ebbinghaus Planner</div>
-            <div className="mt-0.5 text-[11px] text-fg-subtle">
-              {APP_VERSION}
-              {APP_UPDATED ? ` · 更新于 ${APP_UPDATED}` : ""}
-            </div>
           </div>
         </div>
         <nav className="mt-8 space-y-1">
@@ -448,7 +444,7 @@ export function Workbench({
 
       <main
         className={`transition-[padding] duration-200 ${
-          sidebarOpen === false ? "lg:pl-0" : "lg:pl-64"
+          sidebarOpen === false ? "lg:pl-0" : "lg:pl-52"
         }`}
       >
         <header className="sticky top-0 z-10 border-b border-line bg-surface/95 px-5 py-4 backdrop-blur">
@@ -1695,6 +1691,13 @@ function SyncView({
           <Info label="最近代码同步" value={data.syncState.lastCodeSyncedAt?.slice(0, 19).replace("T", " ") ?? "-"} />
           <Info label="错误" value={data.syncState.lastError || "-"} />
           <Info label="代码同步错误" value={data.syncState.lastCodeSyncError || "-"} />
+        </dl>
+      </Panel>
+
+      <Panel title="版本信息">
+        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          <Info label="版本" value={APP_VERSION} />
+          <Info label="更新于" value={APP_UPDATED || "-"} />
         </dl>
       </Panel>
     </div>
