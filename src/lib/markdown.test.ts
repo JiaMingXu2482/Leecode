@@ -131,8 +131,8 @@ describe("题号自动链接", () => {
 
   it("HJ 和 P 开头的按各自题库链", () => {
     expect(render("参考 HJ14")).toContain('href="/problems/by-number/10014"');
-    // P2352 是题单第 12 题 → 20000 + 12
-    expect(render("参考 P2352")).toContain('href="/problems/by-number/20012"');
+    // P 号直接推 id：P2352 → 20000 + 2352
+    expect(render("参考 P2352")).toContain('href="/problems/by-number/22352"');
   });
 
   it("裸数字：确实是 Hot100 题号才链", () => {

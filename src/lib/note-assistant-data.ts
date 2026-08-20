@@ -158,7 +158,7 @@ export async function algoNoteBody(title: string) {
 export async function progressSummary() {
   const db = getDb();
   const sources: [string, string][] = [
-    ["CODEFUN", "速成题单"],
+    ["CODEFUN", "华为题单"],
     ["NOWCODER", "牛客华为机试"],
     ["LEETCODE", "LeetCode Hot100"],
   ];

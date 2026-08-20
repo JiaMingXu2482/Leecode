@@ -15,7 +15,7 @@ import { TOPIC_GROUPS } from "./topics";
 const HOT100_IDS = new Set(TOPIC_GROUPS.flatMap((group) => group.ids));
 const HJ_IDS = new Set(NOWCODER_TOPIC_GROUPS.flatMap((group) => group.ids));
 const CODEFUN_ID_BY_PID = new Map(
-  CODEFUN_PROBLEMS.map(([pid], index) => [pid.toUpperCase(), CODEFUN_ID_BASE + index + 1]),
+  CODEFUN_PROBLEMS.map(([pid]) => [pid.toUpperCase(), CODEFUN_ID_BASE + Number(pid.slice(1))]),
 );
 
 export type TocEntry = { id: string; level: number; text: string };

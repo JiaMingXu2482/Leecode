@@ -33,7 +33,7 @@ import { noteToHtml, noteToPlainText } from "@/lib/notes";
 import { defaultReviewDays, type FeelingScore } from "@/lib/review-scheduler";
 import {
   CODEFUN_ID_BASE,
-  CODEFUN_PROBLEMS,
+  codefunDisplayId,
   CODEFUN_TOPIC_GROUPS,
 } from "@/lib/codefun-problems";
 import { NOWCODER_ID_BASE, NOWCODER_TOPIC_GROUPS } from "@/lib/nowcoder-problems";
@@ -61,7 +61,7 @@ const viewTitle: Record<ActiveView, { title: string; subtitle: string }> = {
   history: { title: "历史笔记", subtitle: "按天回顾做过的题、当时的反馈分数和笔记（解题思路 / C++ 语法分两栏）。" },
   reviews: {
     title: "刷题计划",
-    subtitle: "分 Hot100 和牛客华为机试两个题库管理：勾选不想刷的题或整类，未勾选的进入刷题列表。",
+    subtitle: "分华为题单、牛客华为机试和 Hot100 三个题库管理：勾选不想刷的题或整类，未勾选的进入刷题列表。",
   },
   algo: {
     title: "算法总结",
@@ -76,7 +76,7 @@ const viewTitle: Record<ActiveView, { title: string; subtitle: string }> = {
 // carry displayId around.
 function problemLabel(frontendId: number) {
   if (frontendId > CODEFUN_ID_BASE) {
-    return CODEFUN_PROBLEMS[frontendId - CODEFUN_ID_BASE - 1]?.[0] ?? `P${frontendId}`;
+    return codefunDisplayId(frontendId - CODEFUN_ID_BASE);
   }
   if (frontendId > NOWCODER_ID_BASE) {
     return `HJ${frontendId - NOWCODER_ID_BASE}`;
@@ -1301,7 +1301,7 @@ function TopicsView({
       {/* 题库切换 */}
       <div className="flex items-center gap-2">
         {([
-          ["CODEFUN", "速成题单", data.stats.codefunDone, data.stats.codefunTotal],
+          ["CODEFUN", "华为题单", data.stats.codefunDone, data.stats.codefunTotal],
           ["NOWCODER", "牛客华为机试", data.stats.nowcoderDone, data.stats.nowcoderTotal],
           ["LEETCODE", "LeetCode Hot100", data.stats.accepted, data.stats.total],
         ] as const).map(([key, label, done, total]) => (
@@ -1325,7 +1325,7 @@ function TopicsView({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-fg-subtle">
           {source === "CODEFUN"
-            ? "塔子哥「一周速成题单」69 道高频真题，按分类顺序刷。每日新题优先从这里取，刷完自动接上牛客 HJ。"
+            ? "塔子哥「华为校招机考备考题单」256 道真题，按分类顺序刷。每日新题优先从这里取，刷完自动接上牛客 HJ。"
             : source === "NOWCODER"
               ? "牛客华为机试题库（HJ1–HJ108，ACM 模式）。速成题单刷完后从这里继续。"
               : "Hot100 已刷完，现在只按遗忘曲线安排复习。勾选「不刷」把题目或整类排除出复习列表。"}

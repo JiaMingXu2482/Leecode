@@ -18,7 +18,7 @@ function difficultyRank(difficulty: string) {
   return 2;
 }
 
-// 速成题单走的是另一套：分类内部老老实实由易到难。
+// 华为题单走的是另一套：分类内部老老实实由易到难。
 function codefunDifficultyRank(difficulty: string) {
   if (difficulty === "EASY") return 0;
   if (difficulty === "MEDIUM") return 1;
@@ -46,10 +46,10 @@ export function orderDailyNewPicks<T extends NewPickCandidate>(
   alreadyUsedCategories: Iterable<string> = [],
   alreadyEasyCount = 0,
 ): T[] {
-  // 速成题单优先，分类顺序 = 作者的编排（动态规划 → 模拟 → 贪心 → DFS → BFS
+  // 华为题单优先，分类顺序 = 作者的编排（模拟 → 哈希表 → 栈 → … → BFS → DFS
   // → …）：一个分类刷干净了才进下一个，这样能一次把一类题的框架建起来。
-  // 但分类内部按难度由易到难（100 → 200 → 300 分），不再照抄文档里的顺序 ——
-  // 原顺序会在第二天就撞上 300 分压轴题，做起来很痛苦。
+  // 但分类内部按难度由易到难（简单 → 中等 → 困难），不再照抄文档里的顺序 ——
+  // 原顺序会在第二天就撞上压轴的困难题，做起来很痛苦。
   // 不做分类分散、也不限制简单题数量。刷完自动回落到牛客 HJ。
   const codefun = pool.filter((candidate) => candidate.source === "CODEFUN");
   if (codefun.length) {

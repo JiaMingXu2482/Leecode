@@ -55,6 +55,9 @@ export default async function ProblemDetailPage({
               </p>
               <h1 className="mt-1 text-2xl font-semibold">{problem.titleCn}</h1>
               <p className="mt-2 text-sm text-fg-subtle">{problem.tags}</p>
+              {problem.examOrigin ? (
+                <p className="mt-1 text-xs text-fg-subtle">真题场次：{problem.examOrigin}</p>
+              ) : null}
             </div>
             <a
               href={problem.leetcodeCnUrl}

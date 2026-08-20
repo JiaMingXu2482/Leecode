@@ -8,12 +8,12 @@ import { topicForFrontendId } from "@/lib/topics";
 
 // "New" = not yet studied in this app; a historical LeetCode AC doesn't count.
 //
-// 新题只来自 ACM 题库（速成题单优先，刷完回落到牛客 HJ）：Hot100 已经刷完，它现在
+// 新题只来自 ACM 题库（华为题单优先，刷完回落到牛客 HJ）：Hot100 已经刷完，它现在
 // 只负责出复习题。反过来，复习**只**来自 Hot100 —— ACM 格式的题机考不考原题，做它们
 // 是为了积累经验、总结笔记、保持手感，重做一遍价值很低，所以做完就不再回来。
 export const NEW_POOL_WHERE = {
   isEnabled: true,
-  // 速成题单(CODEFUN)优先，刷完回落到牛客 HJ —— 优先级在 orderDailyNewPicks 里。
+  // 华为题单(CODEFUN)优先，刷完回落到牛客 HJ —— 优先级在 orderDailyNewPicks 里。
   source: { in: ["CODEFUN", "NOWCODER"] },
   reviewSchedule: null,
   sessions: { none: {} },

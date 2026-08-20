@@ -1,11 +1,7 @@
-import {
-  CODEFUN_ID_BASE,
-  CODEFUN_PROBLEMS,
-  codefunFrontendId,
-  codefunTopicForIndex,
-  difficultyForScore,
-} from "@/lib/codefun-problems";
+import { Prisma } from "@prisma/client";
+import { CODEFUN_ID_BASE, CODEFUN_PROBLEMS, codefunFrontendId } from "@/lib/codefun-problems";
 import { getDb } from "@/lib/db";
+import { extractProblemRefs } from "@/lib/markdown";
 
 const MINUTES = {
   EASY: { neu: 30, rev: 15 },
@@ -13,59 +9,129 @@ const MINUTES = {
   HARD: { neu: 70, rev: 35 },
 } as const;
 
-// Imports 塔子哥's 速成题单 alongside the other problem sets. Idempotent:
-// re-running only inserts what's missing and re-syncs tags, never touching a
-// problem's isEnabled flag or study history.
+// 题单顺序（不是 frontendId）：新题池按 hot100Order 排序取出，orderDailyNewPicks
+// 依赖「pool 按题单顺序到达」。frontendId 现在由 P 号推导，和顺序无关了。
+function listOrder(index: number) {
+  return CODEFUN_ID_BASE + index + 1;
+}
+
+// Imports 塔子哥's 华为题单 alongside the other problem sets. Idempotent:
+// re-running only inserts what's missing and re-syncs the fields that come from
+// the 题单 (分类/难度/标题/场次/顺序), never touching a problem's isEnabled flag
+// or study history.
 export async function ensureCodefunProblems() {
   const db = getDb();
 
-  const existing = await db.problem.findMany({
-    where: { source: "CODEFUN" },
-    select: { id: true, frontendId: true, tags: true },
+  // 一次性迁移：老数据的 frontendId 是「题目在数组里的第几个」(20001..20069)，
+  // 现在改成由 P 号推导(P4520 → 24520)。按 displayId 认题，做题记录/复习进度都
+  // 挂在 Problem.id 上，跟着走不会丢。新旧区间不重叠(≤20069 vs ≥21490)，逐行
+  // 更新不会撞 frontendId 的唯一约束。
+  const legacy = await db.problem.findMany({
+    where: { source: "CODEFUN", frontendId: { lt: CODEFUN_ID_BASE + 1000 } },
+    select: { id: true, displayId: true },
   });
+  let migrated = 0;
+  for (const problem of legacy) {
+    if (!/^P\d+$/.test(problem.displayId)) {
+      continue;
+    }
+    await db.problem.update({
+      where: { id: problem.id },
+      data: { frontendId: codefunFrontendId(problem.displayId) },
+    });
+    migrated += 1;
+  }
 
-  // Keep stored tags in step with the code — problems are created once, so a
-  // later re-categorisation would otherwise never reach existing rows.
-  let retagged = 0;
-  for (const problem of existing) {
-    const want = codefunTopicForIndex(problem.frontendId - CODEFUN_ID_BASE);
-    if (problem.tags !== want) {
-      await db.problem.update({ where: { id: problem.id }, data: { tags: want } });
-      retagged += 1;
+  // AlgoNote.refs 是从正文算出来的 frontendId 列表（"22352,10014"）。题号方案一变，
+  // 老笔记里存的 CODEFUN 引用就指向不存在的题了，题目详情页的「相关算法总结」会空掉。
+  // refs 本来就是派生数据，这里按新方案重算一遍。
+  if (migrated > 0) {
+    const notes = await db.algoNote.findMany({ select: { id: true, contentMarkdown: true, refs: true } });
+    for (const note of notes) {
+      const refs = extractProblemRefs(note.contentMarkdown).join(",");
+      if (refs !== note.refs) {
+        await db.algoNote.update({ where: { id: note.id }, data: { refs } });
+      }
     }
   }
 
-  const have = new Set(existing.map((p) => p.frontendId));
-  const toCreate = CODEFUN_PROBLEMS.map(([pid, score, category, title], index) => ({
-    pid,
-    score,
-    category,
-    title,
-    index: index + 1,
-  }))
-    .filter((row) => !have.has(codefunFrontendId(row.index)))
-    .map((row) => {
-      const difficulty = difficultyForScore(row.score);
-      return {
-        frontendId: codefunFrontendId(row.index),
+  const existing = await db.problem.findMany({
+    where: { source: "CODEFUN" },
+    select: {
+      id: true,
+      frontendId: true,
+      tags: true,
+      difficulty: true,
+      titleCn: true,
+      examOrigin: true,
+      hot100Order: true,
+    },
+  });
+  const byFrontendId = new Map(existing.map((problem) => [problem.frontendId, problem]));
+
+  const toCreate: Prisma.ProblemCreateManyInput[] = [];
+  const updates: Prisma.PrismaPromise<unknown>[] = [];
+
+  // Keep the 题单-derived fields in step with the code — problems are created
+  // once, so a later re-categorisation or re-order would otherwise never reach
+  // rows that already exist.
+  CODEFUN_PROBLEMS.forEach(([pid, difficulty, category, title, origin], index) => {
+    const frontendId = codefunFrontendId(pid);
+    const order = listOrder(index);
+    const row = byFrontendId.get(frontendId);
+
+    if (!row) {
+      toCreate.push({
+        frontendId,
         source: "CODEFUN",
-        displayId: row.pid,
-        title: row.title,
-        titleCn: row.title,
-        slug: `codefun-${row.pid.toLowerCase()}`,
-        leetcodeCnUrl: `https://codefun2000.com/p/${row.pid}`,
+        displayId: pid,
+        title,
+        titleCn: title,
+        slug: `codefun-${pid.toLowerCase()}`,
+        leetcodeCnUrl: `https://codefun2000.com/p/${pid}`,
         difficulty,
-        tags: row.category,
-        // Keeps the 题单's own order — that's the order the guide wants you to
-        // work through, category by category.
-        hot100Order: codefunFrontendId(row.index),
+        tags: category,
+        examOrigin: origin,
+        hot100Order: order,
         estimatedNewMinutes: MINUTES[difficulty].neu,
         estimatedReviewMinutes: MINUTES[difficulty].rev,
-      };
-    });
+      });
+      return;
+    }
 
+    const unchanged =
+      row.tags === category &&
+      row.difficulty === difficulty &&
+      row.titleCn === title &&
+      row.examOrigin === origin &&
+      row.hot100Order === order;
+    if (unchanged) {
+      return;
+    }
+
+    // 难度变了估时也跟着变。
+    updates.push(
+      db.problem.update({
+        where: { id: row.id },
+        data: {
+          tags: category,
+          difficulty,
+          title,
+          titleCn: title,
+          examOrigin: origin,
+          hot100Order: order,
+          estimatedNewMinutes: MINUTES[difficulty].neu,
+          estimatedReviewMinutes: MINUTES[difficulty].rev,
+        },
+      }),
+    );
+  });
+
+  if (updates.length) {
+    await db.$transaction(updates);
+  }
   if (toCreate.length) {
     await db.problem.createMany({ data: toCreate });
   }
-  return { created: toCreate.length, retagged };
+  return { migrated, created: toCreate.length, resynced: updates.length };
 }

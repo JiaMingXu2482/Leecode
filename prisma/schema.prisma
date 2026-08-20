@@ -49,6 +49,8 @@ model Problem {
   leetcodeCnUrl          String
   difficulty             Difficulty
   tags                   String
+  // 真题场次（"2025.7.23-暑期实习(留学生)"），只有华为题单有。
+  examOrigin             String               @default("")
   hot100Order            Int
   estimatedNewMinutes    Int
   estimatedReviewMinutes Int

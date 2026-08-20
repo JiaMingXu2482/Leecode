@@ -121,20 +121,21 @@ describe("orderDailyNewPicks", () => {
     it("速成题单优先，两道简单题也照排（不受每天 1 道简单的限制）", () => {
       const pool = [
         candidate("hj-1", 10001, "MEDIUM", "NOWCODER"),
-        candidate("cf-1", 20001, "EASY", "CODEFUN"),
-        candidate("cf-2", 20002, "EASY", "CODEFUN"),
-        candidate("cf-3", 20003, "HARD", "CODEFUN"),
+        candidate("cf-1", 23312, "EASY", "CODEFUN"),
+        candidate("cf-2", 22324, "EASY", "CODEFUN"),
+        candidate("cf-3", 22357, "HARD", "CODEFUN"),
       ];
       const picks = orderDailyNewPicks(pool, PRIORITY, 3);
       expect(picks.map((p) => p.id)).toEqual(["cf-1", "cf-2", "cf-3"]);
     });
 
-    // CodeFun 序号 → 分类：1-14 动态规划，15-24 模拟，25-33 贪心。
+    // frontendId = 20000 + P 号数字，分类查的是真题单：23312/22324 等都在「模拟」，
+    // 22339/22370 在「哈希表」（题单里紧挨着模拟的下一类）。
     it("题单分类内部由易到难，不照抄文档顺序", () => {
       const pool = [
-        candidate("cf-hard", 20003, "HARD", "CODEFUN"),
-        candidate("cf-med", 20005, "MEDIUM", "CODEFUN"),
-        candidate("cf-easy", 20009, "EASY", "CODEFUN"),
+        candidate("cf-hard", 22357, "HARD", "CODEFUN"),
+        candidate("cf-med", 23562, "MEDIUM", "CODEFUN"),
+        candidate("cf-easy", 23312, "EASY", "CODEFUN"),
       ];
       const picks = orderDailyNewPicks(pool, [], 3);
       expect(picks.map((p) => p.id)).toEqual(["cf-easy", "cf-med", "cf-hard"]);
@@ -142,9 +143,9 @@ describe("orderDailyNewPicks", () => {
 
     it("同难度之间保持题单原顺序", () => {
       const pool = [
-        candidate("cf-2", 20002, "MEDIUM", "CODEFUN"),
-        candidate("cf-7", 20007, "MEDIUM", "CODEFUN"),
-        candidate("cf-1", 20001, "EASY", "CODEFUN"),
+        candidate("cf-2", 23562, "MEDIUM", "CODEFUN"),
+        candidate("cf-7", 23871, "MEDIUM", "CODEFUN"),
+        candidate("cf-1", 23312, "EASY", "CODEFUN"),
       ];
       const picks = orderDailyNewPicks(pool, [], 3);
       expect(picks.map((p) => p.id)).toEqual(["cf-1", "cf-2", "cf-7"]);
@@ -152,23 +153,23 @@ describe("orderDailyNewPicks", () => {
 
     it("一个分类刷完才进下一个，哪怕下一类有更简单的题", () => {
       const pool = [
-        candidate("dp-hard", 20014, "HARD", "CODEFUN"), // 动态规划，仅剩这一道
-        candidate("sim-easy", 20015, "EASY", "CODEFUN"), // 模拟
-        candidate("sim-med", 20016, "MEDIUM", "CODEFUN"), // 模拟
+        candidate("sim-hard", 22357, "HARD", "CODEFUN"), // 模拟，仅剩这一道
+        candidate("hash-easy", 22339, "EASY", "CODEFUN"), // 哈希表
+        candidate("hash-med", 22370, "MEDIUM", "CODEFUN"), // 哈希表
       ];
       const picks = orderDailyNewPicks(pool, [], 3);
-      // 动态规划先清空，再按由易到难进模拟
-      expect(picks.map((p) => p.id)).toEqual(["dp-hard", "sim-easy", "sim-med"]);
+      // 模拟先清空，再按由易到难进哈希表
+      expect(picks.map((p) => p.id)).toEqual(["sim-hard", "hash-easy", "hash-med"]);
     });
 
     it("跨分类补齐时，下一类同样从最简单的开始", () => {
       const pool = [
-        candidate("dp-last", 20014, "MEDIUM", "CODEFUN"),
-        candidate("sim-hard", 20015, "HARD", "CODEFUN"),
-        candidate("sim-easy", 20016, "EASY", "CODEFUN"),
+        candidate("sim-last", 23562, "MEDIUM", "CODEFUN"),
+        candidate("hash-hard", 23639, "HARD", "CODEFUN"),
+        candidate("hash-easy", 22339, "EASY", "CODEFUN"),
       ];
       const picks = orderDailyNewPicks(pool, [], 2);
-      expect(picks.map((p) => p.id)).toEqual(["dp-last", "sim-easy"]);
+      expect(picks.map((p) => p.id)).toEqual(["sim-last", "hash-easy"]);
     });
 
     it("速成题单刷完后回落到牛客", () => {
