@@ -338,6 +338,17 @@ export function Workbench({
   }
 
 
+  // 刷题计划页「加入今天」：把任意一道题挂到今天的计划上。复用拖拽用的那个
+  // 接口，它只认 problemId，三个题库都通用；已经在今天了就是 no-op。
+  async function addProblemToToday(problemId: string) {
+    const plans = await addProblemToDay(data.today, problemId);
+    if (!plans) {
+      return false;
+    }
+    setMessage("已加入今日任务");
+    return true;
+  }
+
   async function syncLeetCode() {
     const ok = await requestJson("/api/sync/leetcode-cn", { cookie, syncCode: true });
     if (ok) router.refresh();
@@ -510,6 +521,7 @@ export function Workbench({
               onToggleEnabled={setProblemEnabled}
               onBulkToggle={bulkSetEnabled}
               onTogglePriority={togglePriorityCategory}
+              onAddToToday={addProblemToToday}
             />
           ) : null}
           {active === "stats" ? <StatsView data={data} completion={completion} /> : null}
@@ -1263,13 +1275,19 @@ function TopicsView({
   onToggleEnabled,
   onBulkToggle,
   onTogglePriority,
+  onAddToToday,
 }: {
   data: DashboardData;
   onToggleEnabled: (problemId: string, isEnabled: boolean) => void;
   onBulkToggle: (problemIds: string[], isEnabled: boolean) => void;
   onTogglePriority: (name: string) => void;
+  onAddToToday: (problemId: string) => Promise<boolean>;
 }) {
   const [showScore, setShowScore] = useState(false);
+  // 这一页不加载今天的计划，所以「已加入」只记本次会话点过的题；刷新后按钮
+  // 回到初始态，重复点击是 no-op（接口按 dailyPlan+problem 去重）。
+  const [addedToday, setAddedToday] = useState<Record<string, boolean>>({});
+  const [adding, setAdding] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   // Which problem set is on screen. 速成题单 is the default — it's what the
   // daily plan is drawing from right now.
@@ -1417,6 +1435,25 @@ function TopicsView({
                       <span className={`shrink-0 rounded px-2 py-0.5 text-xs font-semibold ${difficultyClass[problem.difficulty]}`}>
                         {difficultyCn[problem.difficulty]}
                       </span>
+                      <button
+                        onClick={async () => {
+                          setAdding(problem.id);
+                          const ok = await onAddToToday(problem.id);
+                          setAdding("");
+                          if (ok) {
+                            setAddedToday((current) => ({ ...current, [problem.id]: true }));
+                          }
+                        }}
+                        disabled={adding === problem.id}
+                        title="把这道题加到今天的任务里"
+                        className={`shrink-0 rounded-md border px-2 py-0.5 text-xs font-medium disabled:opacity-50 ${
+                          addedToday[problem.id]
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300"
+                            : "border-line-strong text-fg-subtle hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 dark:hover:border-blue-500/30 dark:hover:bg-blue-500/15 dark:hover:text-blue-400"
+                        }`}
+                      >
+                        {adding === problem.id ? "…" : addedToday[problem.id] ? "✓ 今日" : "+ 今天"}
+                      </button>
                       <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-fg-subtle" title="勾选 = 不刷这道题">
                         <input
                           type="checkbox"
