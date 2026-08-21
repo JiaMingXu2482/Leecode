@@ -280,3 +280,45 @@ textarea {
 .md-compact img {
   margin: 0.5rem 0;
 }
+
+/* 代码高亮（highlight.js 的 hljs-* 类名）。代码块在亮/暗两种主题下都是深色底
+   （.md-body pre 固定 #0f172a），所以只需要一套面向深色底的配色。 */
+.md-body pre code .hljs-comment,
+.md-body pre code .hljs-quote {
+  color: #7d8799;
+  font-style: italic;
+}
+.md-body pre code .hljs-keyword,
+.md-body pre code .hljs-selector-tag,
+.md-body pre code .hljs-literal,
+.md-body pre code .hljs-operator {
+  color: #c678dd;
+}
+.md-body pre code .hljs-type,
+.md-body pre code .hljs-class .hljs-title,
+.md-body pre code .hljs-built_in {
+  color: #e5c07b;
+}
+.md-body pre code .hljs-string,
+.md-body pre code .hljs-regexp,
+.md-body pre code .hljs-symbol {
+  color: #98c379;
+}
+.md-body pre code .hljs-number {
+  color: #d19a66;
+}
+.md-body pre code .hljs-title,
+.md-body pre code .hljs-title.function_,
+.md-body pre code .hljs-section {
+  color: #61afef;
+}
+.md-body pre code .hljs-meta,
+.md-body pre code .hljs-meta .hljs-string {
+  color: #56b6c2;
+}
+.md-body pre code .hljs-variable,
+.md-body pre code .hljs-attr,
+.md-body pre code .hljs-property,
+.md-body pre code .hljs-params {
+  color: #e06c75;
+}

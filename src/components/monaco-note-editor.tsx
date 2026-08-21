@@ -3,6 +3,7 @@
 import Editor, { loader } from "@monaco-editor/react";
 import { useEffect, useRef, useState } from "react";
 import { imageFilesFrom } from "@/lib/note-image-upload";
+import { fenceCode, insideFence, looksLikeCode } from "@/lib/paste-code";
 import { noteToPlainText } from "@/lib/notes";
 
 // Serve Monaco's assets from our own origin — the default jsdelivr CDN is
@@ -19,6 +20,7 @@ export default function MonacoNoteEditor({
   language = "cpp",
   height = "28rem",
   onPasteImage,
+  autoFenceCode = false,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -29,8 +31,10 @@ export default function MonacoNoteEditor({
   language?: string;
   height?: string;
   // 粘贴/拖入图片时调用，返回要插入光标处的 Markdown（失败返回 null）。
-  // 只有算法总结页传它；题目笔记不需要图片。
   onPasteImage?: (file: File) => Promise<string | null>;
+  // 粘贴纯文本时，如果看着像代码就自动包一层 ```cpp 围栏，这样渲染出来是
+  // 代码框、和手写的说明文字分得开。
+  autoFenceCode?: boolean;
 }) {
   const [initial] = useState(() => {
     let text = noteToPlainText(value);
@@ -67,7 +71,7 @@ export default function MonacoNoteEditor({
   // 与这些细节无关。用 hasTextFocus() 把作用范围限定在本编辑器聚焦时。
   const editorRef = useRef<Parameters<NonNullable<React.ComponentProps<typeof Editor>["onMount"]>>[0] | null>(null);
   useEffect(() => {
-    if (!onPasteImage) {
+    if (!onPasteImage && !autoFenceCode) {
       return;
     }
     async function insert(files: File[]) {
@@ -76,7 +80,7 @@ export default function MonacoNoteEditor({
         return;
       }
       for (const file of files) {
-        const markdown = await onPasteImage!(file);
+        const markdown = await onPasteImage?.(file);
         const selection = editor.getSelection();
         if (!markdown || !selection) {
           continue;
@@ -91,13 +95,44 @@ export default function MonacoNoteEditor({
       if (!editorRef.current?.hasTextFocus()) {
         return;
       }
-      const files = imageFilesFrom([...(event.clipboardData?.items ?? [])]);
-      if (!files.length) {
+      const files = onPasteImage ? imageFilesFrom([...(event.clipboardData?.items ?? [])]) : [];
+      if (files.length) {
+        event.preventDefault();
+        event.stopPropagation();
+        void insert(files);
+        return;
+      }
+      if (!autoFenceCode) {
         return; // 普通文本粘贴，交给 Monaco
+      }
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      if (!looksLikeCode(text)) {
+        return;
+      }
+      const editor = editorRef.current;
+      const selection = editor?.getSelection();
+      const model = editor?.getModel();
+      if (!editor || !selection || !model) {
+        return;
+      }
+      // 已经在一段没闭合的围栏里了，说明用户正往代码块里贴，不要再包一层。
+      const before = model.getValueInRange({
+        startLineNumber: 1,
+        startColumn: 1,
+        endLineNumber: selection.startLineNumber,
+        endColumn: selection.startColumn,
+      });
+      if (insideFence(before)) {
+        return;
       }
       event.preventDefault();
       event.stopPropagation();
-      void insert(files);
+      // 不在行首的话先换行，否则围栏起始的 ``` 会跟在正文后面，Markdown 不认。
+      const prefix = selection.startColumn === 1 ? "" : "\n";
+      editor.executeEdits("paste-code", [
+        { range: selection, text: prefix + fenceCode(text), forceMoveMarkers: true },
+      ]);
+      editor.focus();
     }
     function onDrop(event: DragEvent) {
       const node = editorRef.current?.getDomNode();
@@ -126,7 +161,7 @@ export default function MonacoNoteEditor({
       document.removeEventListener("drop", onDrop, true);
       document.removeEventListener("dragover", onDragOver, true);
     };
-  }, [onPasteImage]);
+  }, [onPasteImage, autoFenceCode]);
 
   const dark =
     typeof document !== "undefined" && document.documentElement.classList.contains("dark");

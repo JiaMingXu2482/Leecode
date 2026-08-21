@@ -15,11 +15,14 @@ describe("markdownToHtml", () => {
     ]);
   });
 
-  it("围栏代码块保留原文并带上语言", () => {
+  it("围栏代码块保留原文、带上语言、并做语法高亮", () => {
     const html = render("```cpp\nfor (int i = 1; i <= n; ++i)\n  dp[i] = max(a, b);\n```");
     expect(html).toContain('<pre data-lang="cpp"><code class="language-cpp">');
-    expect(html).toContain("for (int i = 1; i &lt;= n; ++i)");
-    expect(html).toContain("dp[i] = max(a, b);");
+    // 高亮加了 span，但原文（转义后）仍然完整 —— 去掉标签后比对
+    const text = html.replace(/<[^>]+>/g, "");
+    expect(text).toContain("for (int i = 1; i &lt;= n; ++i)");
+    expect(text).toContain("dp[i] = max(a, b);");
+    expect(html).toContain('<span class="hljs-keyword">for</span>');
   });
 
   it("代码块里不做任何行内处理", () => {

@@ -27,9 +27,11 @@ import {
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { type DragEvent, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
+import { type DragEvent, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import type { DashboardData } from "@/lib/dashboard-data";
-import { noteToHtml, noteToPlainText } from "@/lib/notes";
+import { markdownToHtml } from "@/lib/markdown";
+import { noteToPlainText } from "@/lib/notes";
+import { uploadNoteImage } from "@/lib/note-image-upload";
 import { defaultReviewDays, type FeelingScore } from "@/lib/review-scheduler";
 import {
   CODEFUN_ID_BASE,
@@ -116,12 +118,15 @@ const MonacoNoteEditor = dynamic(() => import("@/components/monaco-note-editor")
   ),
 });
 
-// Read-only rendering of a stored note (rich HTML or legacy plain text).
+// 已保存笔记的只读渲染。笔记现在按 Markdown 存：粘贴的图片是 ![](/api/note-images/x)，
+// 粘贴的代码是 ``` 围栏（渲染成带语法高亮的代码框）。老的纯文本/富文本笔记先
+// 拍平成纯文本再渲染 —— 里面没有 Markdown 语法，走同一条路也不会变样。
 function NoteContent({ value, className }: { value: string; className?: string }) {
+  const html = useMemo(() => markdownToHtml(noteToPlainText(value)).html, [value]);
   return (
     <div
-      className={`note-content whitespace-pre-wrap font-mono ${className ?? ""}`}
-      dangerouslySetInnerHTML={{ __html: noteToHtml(value) }}
+      className={`md-body md-compact ${className ?? ""}`}
+      dangerouslySetInnerHTML={{ __html: html }}
     />
   );
 }
@@ -1754,6 +1759,26 @@ function TaskRow({
   const [noteMarkdown, setNoteMarkdown] = useState(() => noteToPlainText(item.session?.noteMarkdown ?? ""));
   const [noteSyntax, setNoteSyntax] = useState(() => noteToPlainText(item.session?.noteSyntax ?? ""));
   const past = item.history ?? [];
+  const [notePreview, setNotePreview] = useState(false);
+  const [imageError, setImageError] = useState("");
+
+  // 粘贴/拖入图片 → 上传后返回 ![](...)，编辑器把它插到光标处。
+  async function addImage(file: File) {
+    setImageError("");
+    const result = await uploadNoteImage(file, (image) =>
+      fetch("/api/note-images", {
+        method: "POST",
+        headers: { "content-type": image.type },
+        body: image,
+      }),
+    );
+    if (!result.ok) {
+      setImageError(result.error);
+      return null;
+    }
+    return result.markdown;
+  }
+
   // Keyed by problem so unsent notes survive a re-plan (plan-item ids change).
   const draftKeyMd = `note-draft:${item.problem.id}:md`;
   const draftKeySyntax = `note-draft:${item.problem.id}:syntax`;
@@ -1925,14 +1950,35 @@ function TaskRow({
           </div>
           <div className="mt-3 grid gap-3 lg:grid-cols-2">
             <div className="text-sm text-fg-muted">
-              <span className="inline-flex items-center gap-1 font-medium text-fg">
-                <BookOpen size={14} /> 解题思路笔记
-              </span>
-              <MonacoNoteEditor
-                value={noteMarkdown}
-                onChange={setNoteMarkdown}
-                draftKey={draftKeyMd}
-              />
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1 font-medium text-fg">
+                  <BookOpen size={14} /> 解题思路笔记
+                </span>
+                <span className="flex items-center gap-2">
+                  {imageError ? <span className="text-xs text-red-500">{imageError}</span> : null}
+                  <span className="text-xs text-fg-subtle">可粘贴图片 / 代码</span>
+                  <button
+                    onClick={() => setNotePreview((open) => !open)}
+                    className="rounded-md border border-line-strong px-2 py-0.5 text-xs font-medium text-fg-subtle hover:bg-muted"
+                  >
+                    {notePreview ? "继续写" : "预览"}
+                  </button>
+                </span>
+              </div>
+              {notePreview ? (
+                <div className="mt-2 h-[28rem] overflow-auto rounded-md border border-line-strong p-3">
+                  <NoteContent value={noteMarkdown} />
+                </div>
+              ) : (
+                <MonacoNoteEditor
+                  value={noteMarkdown}
+                  onChange={setNoteMarkdown}
+                  draftKey={draftKeyMd}
+                  language="markdown"
+                  onPasteImage={addImage}
+                  autoFenceCode
+                />
+              )}
             </div>
             <div className="text-sm text-fg-muted">
               <span className="inline-flex items-center gap-1 font-medium text-fg">

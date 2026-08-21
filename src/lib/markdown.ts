@@ -1,5 +1,6 @@
 import { CODEFUN_ID_BASE, CODEFUN_PROBLEMS } from "./codefun-problems";
 import { NOWCODER_ID_BASE, NOWCODER_TOPIC_GROUPS } from "./nowcoder-problems";
+import { highlightFence } from "./highlight";
 import { escapeHtml } from "./notes";
 import { TOPIC_GROUPS } from "./topics";
 
@@ -174,7 +175,8 @@ export function markdownToHtml(source: string): { html: string; toc: TocEntry[] 
       index += 1; // 吃掉结尾的 ```
       const languageClass = language ? ` class="language-${escapeHtml(language)}"` : "";
       const label = language ? ` data-lang="${escapeHtml(language)}"` : "";
-      out.push(`<pre${label}><code${languageClass}>${escapeHtml(body.join("\n"))}</code></pre>`);
+      // highlightFence 自己会转义；认不出的语言它原样转义后返回。
+      out.push(`<pre${label}><code${languageClass}>${highlightFence(body.join("\n"), language)}</code></pre>`);
       continue;
     }
 
