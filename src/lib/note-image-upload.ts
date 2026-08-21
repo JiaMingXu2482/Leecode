@@ -2,8 +2,10 @@
 // 抽成纯函数是为了能单测 —— 粘贴这种行为只能在真浏览器里手动试，
 // 而「哪些 item 算图片」「失败怎么反馈」恰恰最容易写错。
 
+// markdown 给按纯文本编辑的地方（算法总结的 Monaco）用；url 给所见即所得
+// 编辑器用 —— 它要的是裸地址，自己插图片节点。
 export type UploadResult =
-  | { ok: true; markdown: string }
+  | { ok: true; markdown: string; url: string }
   | { ok: false; error: string };
 
 // 剪贴板里一次粘贴可能同时带 text/html、image/png 等多份数据。只挑图片，
@@ -38,5 +40,5 @@ export async function uploadNoteImage(
   }
   // alt 用文件名（截图一般是 image.png 这种），没有就留空
   const alt = (file.name || "").replace(/\.[a-z0-9]+$/i, "").slice(0, 60);
-  return { ok: true, markdown: `![${alt}](${payload.url})` };
+  return { ok: true, markdown: `![${alt}](${payload.url})`, url: payload.url };
 }

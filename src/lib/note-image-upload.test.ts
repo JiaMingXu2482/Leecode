@@ -40,13 +40,21 @@ describe("uploadNoteImage", () => {
     const result = await uploadNoteImage(png, async () =>
       jsonResponse({ id: "abc", url: "/api/note-images/abc" }),
     );
-    expect(result).toEqual({ ok: true, markdown: "![screenshot](/api/note-images/abc)" });
+    expect(result).toEqual({
+      ok: true,
+      markdown: "![screenshot](/api/note-images/abc)",
+      url: "/api/note-images/abc",
+    });
   });
 
   it("alt 去掉扩展名", async () => {
     const file = new File([new Uint8Array([1])], "邻接表.png", { type: "image/png" });
     const result = await uploadNoteImage(file, async () => jsonResponse({ url: "/api/note-images/x" }));
-    expect(result).toEqual({ ok: true, markdown: "![邻接表](/api/note-images/x)" });
+    expect(result).toEqual({
+      ok: true,
+      markdown: "![邻接表](/api/note-images/x)",
+      url: "/api/note-images/x",
+    });
   });
 
   it("服务端报错时把原因带回来", async () => {

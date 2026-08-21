@@ -322,3 +322,33 @@ textarea {
 .md-body pre code .hljs-params {
   color: #e06c75;
 }
+
+/* 所见即所得笔记编辑器（toast-ui）。它自带的主题用固定色，这里把外框和字号
+   拉回本项目的设计变量，暗色下也不至于跟周围割裂。 */
+.tui-note-editor .toastui-editor-defaultUI {
+  border-color: var(--line-strong);
+  border-radius: 6px;
+}
+.tui-note-editor .toastui-editor-defaultUI-toolbar {
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+}
+.tui-note-editor .toastui-editor-contents {
+  font-size: 0.9375rem;
+}
+/* 正文里的图片别撑破编辑区 */
+.tui-note-editor .toastui-editor-contents img {
+  max-width: 100%;
+  height: auto;
+}
+/* 代码块跟着笔记渲染那套深色底走，编辑态和保存后看起来一致 */
+.tui-note-editor .toastui-editor-contents pre {
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 6px;
+}
+.tui-note-editor .toastui-editor-contents pre code {
+  font-family: Consolas, "Courier New", ui-monospace, monospace;
+  font-size: 0.8125rem;
+  background: transparent;
+}

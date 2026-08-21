@@ -109,13 +109,10 @@ const APP_UPDATED = process.env.NEXT_PUBLIC_BUILD_DATE ?? "";
 
 // Monaco (the engine behind LeetCode's code editor) is heavy, so it loads on
 // demand — only when a feedback panel actually opens.
-const MonacoNoteEditor = dynamic(() => import("@/components/monaco-note-editor"), {
+// 所见即所得的笔记编辑器：图片和代码框直接在正文里渲染。和 Monaco 一样按需加载。
+const WysiwygNoteEditor = dynamic(() => import("@/components/wysiwyg-note-editor"), {
   ssr: false,
-  loading: () => (
-    <div className="mt-2 flex h-[28rem] items-center justify-center rounded-md border border-line-strong text-sm text-fg-subtle">
-      编辑器加载中…
-    </div>
-  ),
+  loading: () => <div className="mt-2 h-[28rem] rounded-md border border-line-strong" />,
 });
 
 // 已保存笔记的只读渲染。笔记现在按 Markdown 存：粘贴的图片是 ![](/api/note-images/x)，
@@ -1759,10 +1756,9 @@ function TaskRow({
   const [noteMarkdown, setNoteMarkdown] = useState(() => noteToPlainText(item.session?.noteMarkdown ?? ""));
   const [noteSyntax, setNoteSyntax] = useState(() => noteToPlainText(item.session?.noteSyntax ?? ""));
   const past = item.history ?? [];
-  const [notePreview, setNotePreview] = useState(false);
   const [imageError, setImageError] = useState("");
 
-  // 粘贴/拖入图片 → 上传后返回 ![](...)，编辑器把它插到光标处。
+  // 粘贴/拖入图片 → 上传后把 URL 交给编辑器，它插一个图片节点，当场就能看到图。
   async function addImage(file: File) {
     setImageError("");
     const result = await uploadNoteImage(file, (image) =>
@@ -1776,7 +1772,7 @@ function TaskRow({
       setImageError(result.error);
       return null;
     }
-    return result.markdown;
+    return result.url;
   }
 
   // Keyed by problem so unsent notes survive a re-plan (plan-item ids change).
@@ -1954,40 +1950,24 @@ function TaskRow({
                 <span className="inline-flex items-center gap-1 font-medium text-fg">
                   <BookOpen size={14} /> 解题思路笔记
                 </span>
-                <span className="flex items-center gap-2">
-                  {imageError ? <span className="text-xs text-red-500">{imageError}</span> : null}
-                  <span className="text-xs text-fg-subtle">可粘贴图片 / 代码</span>
-                  <button
-                    onClick={() => setNotePreview((open) => !open)}
-                    className="rounded-md border border-line-strong px-2 py-0.5 text-xs font-medium text-fg-subtle hover:bg-muted"
-                  >
-                    {notePreview ? "继续写" : "预览"}
-                  </button>
-                </span>
+                {imageError ? <span className="text-xs text-red-500">{imageError}</span> : null}
               </div>
-              {notePreview ? (
-                <div className="mt-2 h-[28rem] overflow-auto rounded-md border border-line-strong p-3">
-                  <NoteContent value={noteMarkdown} />
-                </div>
-              ) : (
-                <MonacoNoteEditor
-                  value={noteMarkdown}
-                  onChange={setNoteMarkdown}
-                  draftKey={draftKeyMd}
-                  language="markdown"
-                  onPasteImage={addImage}
-                  autoFenceCode
-                />
-              )}
+              <WysiwygNoteEditor
+                value={noteMarkdown}
+                onChange={setNoteMarkdown}
+                draftKey={draftKeyMd}
+                onUploadImage={addImage}
+              />
             </div>
             <div className="text-sm text-fg-muted">
               <span className="inline-flex items-center gap-1 font-medium text-fg">
                 <Code2 size={14} /> C++ 语法 / 知识点
               </span>
-              <MonacoNoteEditor
+              <WysiwygNoteEditor
                 value={noteSyntax}
                 onChange={setNoteSyntax}
                 draftKey={draftKeySyntax}
+                onUploadImage={addImage}
               />
             </div>
           </div>
