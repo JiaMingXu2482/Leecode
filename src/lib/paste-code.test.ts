@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fenceCode, insideFence, looksLikeCode } from "./paste-code";
+import { fenceCode, insideFence, looksLikeCode, normalizeNewlines } from "./paste-code";
 
 describe("looksLikeCode", () => {
   it("认出 C++ 代码", () => {
@@ -42,6 +42,23 @@ void dfs(int i,long long nT,long long sum){//目前结果为sum，还剩nT人天
     ).toBe(true);
   });
 
+  it("认出各种循环和判断语句", () => {
+    const cases = [
+      "for(int i=0;i<n;i++){\n  cnt++;\n}",
+      "for(auto& vec:ans){\n  cout<<vec<<endl;\n}",
+      "while(l<r){\n  mid=(l+r)/2;\n}",
+      "if(nT<=0) return;",
+      "if(i==n) {ans=max(ans,sum);return;}",
+      "} else {\n  cnt = 0;\n}",
+      "switch(op){\n  case 1: break;\n}",
+      "dp[i] = dp[i-1] + 1;",
+      "count++;",
+    ];
+    for (const code of cases) {
+      expect(looksLikeCode(code), code.slice(0, 30)).toBe(true);
+    }
+  });
+
   it("中文笔记不当代码", () => {
     expect(
       looksLikeCode(`用选与不选，同一个数可以重复选，框架对了
@@ -69,6 +86,20 @@ dfs中return分3类
       looksLikeCode(`这里的 dfs(i, num) 表示第 i 个数还剩 num
 注意 return 的三种情况都要写全`),
     ).toBe(false);
+  });
+});
+
+describe("normalizeNewlines", () => {
+  it("把 Windows 剪贴板的 CRLF 换成 LF（否则代码块里每行中间多一个空行）", () => {
+    expect(normalizeNewlines("int a;\r\nint b;\r\n")).toBe("int a;\nint b;\n");
+  });
+
+  it("单独的 CR 也处理", () => {
+    expect(normalizeNewlines("a\rb")).toBe("a\nb");
+  });
+
+  it("已经是 LF 的不变", () => {
+    expect(normalizeNewlines("a\nb")).toBe("a\nb");
   });
 });
 

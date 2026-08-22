@@ -352,3 +352,49 @@ textarea {
   font-size: 0.8125rem;
   background: transparent;
 }
+
+/* 编辑器里代码块的语法配色。code-syntax-highlight 插件只带语言下拉框的样式，
+   .token.* 一条配色规则都没有 —— 高亮 span 生成了但全是同一个颜色。
+   这里补上，配色对着 .tui-note-editor pre 的深色底（#0f172a）调。 */
+.tui-note-editor .toastui-editor-contents pre .token.comment,
+.tui-note-editor .toastui-editor-contents pre .token.prolog,
+.tui-note-editor .toastui-editor-contents pre .token.doctype,
+.tui-note-editor .toastui-editor-contents pre .token.cdata {
+  color: #7d8799;
+  font-style: italic;
+}
+.tui-note-editor .toastui-editor-contents pre .token.keyword,
+.tui-note-editor .toastui-editor-contents pre .token.boolean,
+.tui-note-editor .toastui-editor-contents pre .token.rule {
+  color: #c678dd;
+}
+.tui-note-editor .toastui-editor-contents pre .token.class-name,
+.tui-note-editor .toastui-editor-contents pre .token.builtin {
+  color: #e5c07b;
+}
+.tui-note-editor .toastui-editor-contents pre .token.string,
+.tui-note-editor .toastui-editor-contents pre .token.char,
+.tui-note-editor .toastui-editor-contents pre .token.regex {
+  color: #98c379;
+}
+.tui-note-editor .toastui-editor-contents pre .token.number,
+.tui-note-editor .toastui-editor-contents pre .token.constant {
+  color: #d19a66;
+}
+.tui-note-editor .toastui-editor-contents pre .token.function {
+  color: #61afef;
+}
+.tui-note-editor .toastui-editor-contents pre .token.macro,
+.tui-note-editor .toastui-editor-contents pre .token.directive,
+.tui-note-editor .toastui-editor-contents pre .token.directive-hash {
+  color: #56b6c2;
+}
+.tui-note-editor .toastui-editor-contents pre .token.operator,
+.tui-note-editor .toastui-editor-contents pre .token.punctuation {
+  color: #abb2bf;
+}
+.tui-note-editor .toastui-editor-contents pre .token.property,
+.tui-note-editor .toastui-editor-contents pre .token.variable,
+.tui-note-editor .toastui-editor-contents pre .token.symbol {
+  color: #e06c75;
+}

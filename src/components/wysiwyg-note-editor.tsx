@@ -13,7 +13,7 @@ import "prismjs/components/prism-python";
 import "prismjs/components/prism-java";
 import { useEffect, useRef } from "react";
 import { noteToPlainText } from "@/lib/notes";
-import { looksLikeCode } from "@/lib/paste-code";
+import { looksLikeCode, normalizeNewlines } from "@/lib/paste-code";
 
 // 所见即所得的 Markdown 笔记编辑器（toast-ui）。
 //
@@ -179,7 +179,7 @@ export default function WysiwygNoteEditor({
       if (!looksLikeCode(text)) {
         return; // 普通文字，照常粘贴
       }
-      if (!insertCodeBlock(editor, text)) {
+      if (!insertCodeBlock(editor, normalizeNewlines(text))) {
         return; // 插不进去就退回默认粘贴，别把内容吞了
       }
       event.preventDefault();

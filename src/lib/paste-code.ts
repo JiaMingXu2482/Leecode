@@ -11,9 +11,17 @@ const STRONG = [
   /^\s*(public|private|protected)\s*:/m,
   /^\s*(def|class|import|from)\s+\w/m,
   /^\s*(int|void|bool|double|float|char|long|string|auto|vector|struct|template)\b.*[;{(]/m,
+  // 控制结构：C 风格 for、范围 for、while / if / switch 带花括号、else。
+  // 这些是最常单独粘贴的片段，不带 #include 之类的强特征。
   /\bfor\s*\(.*;.*;.*\)/,
-  /\bwhile\s*\(.*\)\s*\{/,
+  /\bfor\s*\([^)]*:[^)]*\)/,
+  /\b(while|if|switch)\s*\(.+\)\s*\{/,
+  /^\s*\}?\s*else\b/m,
   /^\s*(return|break|continue)\b\s*[^一-鿿]*;/m,
+  // 单行也算代码：if(x) return; / a[i] = b; / cnt++;
+  /^\s*(if|while|for)\s*\(.+\)\s*\S.*;\s*$/m,
+  /^\s*[\w.[\]]+\s*(=|\+=|-=|\*=|\/=|%=)[^=].*;\s*$/m,
+  /^\s*[\w.[\]]+(\+\+|--)\s*;\s*$/m,
 ];
 
 // 一行「像代码」：以分号/花括号收尾，或者是明显的控制结构、赋值、调用。
@@ -62,8 +70,14 @@ export function looksLikeCode(text: string): boolean {
   return codey / lines.length >= 0.5;
 }
 
+// Windows 剪贴板给的是 \r\n。多出来的 \r 进了代码块会被渲染成额外空行 ——
+// 看起来就是「每行代码中间都空了一行」。所以插入前统一成 \n。
+export function normalizeNewlines(text: string): string {
+  return text.replace(/\r\n?/g, "\n");
+}
+
 export function fenceCode(text: string, language = "cpp"): string {
-  const body = text.replace(/\s+$/, "");
+  const body = normalizeNewlines(text).replace(/\s+$/, "");
   return `\`\`\`${language}\n${body}\n\`\`\`\n`;
 }
 
