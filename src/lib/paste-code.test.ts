@@ -25,6 +25,23 @@ int main() {
     expect(looksLikeCode("def dfs(i, cur):\n    if i == n:\n        return")).toBe(true);
   });
 
+  it("带大量中文注释的 C++ 仍然是代码（用户实际粘贴的那段）", () => {
+    expect(
+      looksLikeCode(`#include <bits/stdc++.h>
+using namespace std;
+int n;//需求总数
+long long nT;//工作量评估预算
+vector<long long> v;//每个需求所需工作量
+long long ans=0;
+void dfs(int i,long long nT,long long sum){//目前结果为sum，还剩nT人天预算,考虑第i人选或者不选
+  if(i==n) {ans=max(ans,sum);return;}
+  if(nT<=0) return;
+  //不选
+  dfs(i+1,nT,sum);
+}`),
+    ).toBe(true);
+  });
+
   it("中文笔记不当代码", () => {
     expect(
       looksLikeCode(`用选与不选，同一个数可以重复选，框架对了

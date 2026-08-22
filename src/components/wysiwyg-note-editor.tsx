@@ -13,6 +13,7 @@ import "prismjs/components/prism-python";
 import "prismjs/components/prism-java";
 import { useEffect, useRef } from "react";
 import { noteToPlainText } from "@/lib/notes";
+import { looksLikeCode } from "@/lib/paste-code";
 
 // 所见即所得的 Markdown 笔记编辑器（toast-ui）。
 //
@@ -24,6 +25,45 @@ import { noteToPlainText } from "@/lib/notes";
 // 所以选了原生吃 Markdown 的 toast-ui，而不是 TipTap 那种存 ProseMirror JSON 的。
 //
 // 语法高亮插件用的是 prismjs，只注册实际会用到的几种语言。
+
+// 往光标处插一个代码块。
+//
+// 试过但不行的几条路：
+//   - exec("codeBlock") + insertText(text)：insertText 遇到换行会切块，只有第一
+//     行留在代码块里，其余掉出来变成普通段落。
+//   - replaceSelection(text)：WYSIWYG 下它把文本按换行切成 paragraph 节点，同样
+//     不会变成代码块。
+//   - 伪造带 text/html 的粘贴事件：整段确实进了一个代码块，但 data-language 不
+//     被识别（没有语言就没高亮），而且会把相邻段落并进代码块。
+// 所以直接构造 ProseMirror 节点 —— 这是唯一能一次拿到「整段 + 语言」的方式。
+// getCurrentModeEditor().view 不在公开类型里，所以整段都做了防御，拿不到就返回
+// false 让调用方走默认粘贴。
+function insertCodeBlock(editor: Editor, text: string, language = "cpp"): boolean {
+  try {
+    const mode = editor.getCurrentModeEditor() as unknown as {
+      view?: {
+        state: { schema: { nodes: Record<string, unknown> }; tr: unknown };
+        dispatch: (tr: unknown) => void;
+      };
+    };
+    const view = mode?.view;
+    const codeBlock = view?.state.schema.nodes.codeBlock as
+      | { create: (attrs: unknown, content: unknown) => unknown }
+      | undefined;
+    if (!view || !codeBlock) {
+      return false;
+    }
+    const schema = view.state.schema as unknown as { text: (value: string) => unknown };
+    const node = codeBlock.create({ language }, schema.text(text));
+    const tr = view.state.tr as unknown as {
+      replaceSelectionWith: (node: unknown) => { scrollIntoView: () => unknown };
+    };
+    view.dispatch(tr.replaceSelectionWith(node).scrollIntoView());
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export default function WysiwygNoteEditor({
   value,
@@ -74,7 +114,7 @@ export default function WysiwygNoteEditor({
       initialValue: initial,
       initialEditType: "wysiwyg",
       previewStyle: "vertical",
-      hideModeSwitch: false,
+      hideModeSwitch: true,
       usageStatistics: false,
       theme: dark ? "dark" : "light",
       language: "zh-CN",
@@ -122,7 +162,33 @@ export default function WysiwygNoteEditor({
       onChangeRef.current(initial);
     }
 
+    // 粘贴代码 → 直接变成代码块。toast-ui 默认把纯文本按段落插进去，一行行的
+    // 普通文字，看不出是代码。挂在 document 的捕获阶段，在编辑器自己的处理之前
+    // 拦下来；用 holder.contains 把作用范围限定在本编辑器内。
+    const root = holder;
+    function onPaste(event: ClipboardEvent) {
+      if (!(event.target instanceof Node) || !root.contains(event.target)) {
+        return;
+      }
+      const items = [...(event.clipboardData?.items ?? [])];
+      // 图片交给 addImageBlobHook，不在这里拦。
+      if (items.some((item) => item.kind === "file" && item.type.startsWith("image/"))) {
+        return;
+      }
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      if (!looksLikeCode(text)) {
+        return; // 普通文字，照常粘贴
+      }
+      if (!insertCodeBlock(editor, text)) {
+        return; // 插不进去就退回默认粘贴，别把内容吞了
+      }
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    document.addEventListener("paste", onPaste, true);
+
     return () => {
+      document.removeEventListener("paste", onPaste, true);
       editor.destroy();
       editorRef.current = null;
     };

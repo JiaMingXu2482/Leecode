@@ -45,12 +45,14 @@ export function looksLikeCode(text: string): boolean {
   if (trimmed.includes("```")) {
     return false;
   }
-  // 中文占比超过三成，当成笔记。
-  if (cjkRatio(trimmed) > 0.3) {
-    return false;
-  }
+  // 强信号优先于中文占比：用户习惯是在代码里写中文注释，一段带大量中文注释的
+  // C++ 仍然是代码。
   if (STRONG.some((pattern) => pattern.test(trimmed))) {
     return true;
+  }
+  // 没有强信号时，中文占比超过三成当成笔记。
+  if (cjkRatio(trimmed) > 0.3) {
+    return false;
   }
   const lines = trimmed.split(/\r?\n/).filter((line) => line.trim());
   if (lines.length < 2) {
