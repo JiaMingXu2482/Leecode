@@ -104,6 +104,55 @@ function updateImageUrl(editor: Editor, oldUrl: string, newUrl: string): boolean
   }
 }
 
+// 手打的连续空格 / 行首缩进换成不换行空格（NBSP）。
+//
+// Markdown 的段落存不住连续空格：toast-ui 序列化时会把「下标1  下标2」压成一个
+// 空格，行首缩进也会被吃掉，树形图就散了。NBSP 是普通字符，不参与空白折叠，存
+// 进 Markdown 再读出来还是原样。
+//
+// 只在「行首」或「前一个字符已经是空格」时替换 —— 正常打字的单个空格保持普通
+// 空格，不然整篇笔记都是 NBSP，复制出去会很奇怪。代码块本来就保留空格，跳过。
+const NBSP = " ";
+
+function insertNbspIfNeeded(editor: Editor): boolean {
+  try {
+    const mode = editor.getCurrentModeEditor() as unknown as {
+      view?: {
+        state: {
+          selection: { empty: boolean; $from: { parentOffset: number; pos: number; parent: PmNode } };
+          doc: { textBetween: (from: number, to: number) => string };
+          tr: { insertText: (text: string) => unknown };
+        };
+        dispatch: (tr: unknown) => void;
+      };
+    };
+    const view = mode?.view;
+    if (!view) {
+      return false;
+    }
+    const { selection, doc } = view.state;
+    if (!selection.empty) {
+      return false;
+    }
+    if (selection.$from.parent.type?.name === "codeBlock") {
+      return false; // 代码块原样保留空格，不用换
+    }
+    const prev =
+      selection.$from.parentOffset === 0
+        ? ""
+        : doc.textBetween(selection.$from.pos - 1, selection.$from.pos);
+    // 行首：段落开头，或者前一个字符是换行（段落内的软换行也算一行的开始）。
+    const atLineStart = prev === "" || prev === "\n";
+    if (!atLineStart && prev !== " " && prev !== NBSP) {
+      return false; // 普通的单个空格，交给编辑器
+    }
+    view.dispatch(view.state.tr.insertText(NBSP));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 type PmNode = { type?: { name?: string }; attrs?: Record<string, unknown> };
 type PmTr = { setNodeMarkup: (pos: number, type: null, attrs: Record<string, unknown>) => unknown };
 
@@ -264,6 +313,16 @@ export default function WysiwygNoteEditor({
       event.stopPropagation();
     }
 
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== " " || event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+      if (insertNbspIfNeeded(editor)) {
+        event.preventDefault();
+      }
+    }
+
+    root.addEventListener("keydown", onKeyDown, true);
     root.addEventListener("click", onClickImage, true);
     // 图片是异步渲染进来的（粘贴上传、切换文档），用 observer 兜住所有时机。
     const observer = new MutationObserver(() => applyWidths());
@@ -272,6 +331,7 @@ export default function WysiwygNoteEditor({
 
     return () => {
       observer.disconnect();
+      root.removeEventListener("keydown", onKeyDown, true);
       root.removeEventListener("click", onClickImage, true);
       document.removeEventListener("paste", onPaste, true);
       editor.destroy();

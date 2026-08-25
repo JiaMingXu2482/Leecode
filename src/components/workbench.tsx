@@ -1381,7 +1381,15 @@ function TopicsView({
   const groups = categoryNames
     .filter((name) => byCategory.has(name))
     .map((name) => {
-      const items = byCategory.get(name) ?? [];
+      // 组内按难度由易到难。以前分组直接用代码里的分类树，那份数据本身就排好了；
+      // 现在按数据库 tags 分组，手动改过分类的题会带着原来的 hot100Order 落到组
+      // 末尾，所以要在这里重新排。同难度保持题单原顺序（数组本身按 hot100Order）。
+      const rank = { EASY: 0, MEDIUM: 1, HARD: 2 } as const;
+      const items = [...(byCategory.get(name) ?? [])].sort(
+        (a, b) =>
+          (rank[a.difficulty as keyof typeof rank] ?? 3) -
+          (rank[b.difficulty as keyof typeof rank] ?? 3),
+      );
       const enabledCount = items.filter((problem) => problem.isEnabled !== false).length;
       // 已完成 = 做过至少一次（有 StudySession），和上方题库标签页的进度同一口径。
       const doneCount = items.filter((problem) => problem.sessionCount > 0).length;

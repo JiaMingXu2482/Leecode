@@ -416,19 +416,20 @@ textarea {
    定位（20 多条规则），改 background-size 会让每个图标都错位 —— 所以用
    transform 整体缩放，再用负 margin 把缩放后多出来的空隙收掉。 */
 .tui-note-editor .toastui-editor-defaultUI-toolbar {
-  height: 30px;
+  height: 34px;
   padding: 0 12px;
 }
+/* 盒子必须保持 32px：精灵图的每个图标占 26px 宽的格子，把按钮缩到 16px 会把
+   图标裁掉大半，再叠加缩放就几乎看不见了。只用 transform 缩小视觉尺寸，再用
+   负 margin 把缩放后多出来的空白收掉。 */
 .tui-note-editor .toastui-editor-defaultUI-toolbar button {
-  width: 16px;
-  height: 16px;
-  margin: 7px 6px;
-}
-.tui-note-editor .toastui-editor-toolbar-icons {
-  transform: scale(0.5);
-  transform-origin: top left;
+  width: 32px;
+  height: 32px;
+  margin: 1px -3px;
+  transform: scale(0.62);
+  transform-origin: center;
 }
 .tui-note-editor .toastui-editor-toolbar-divider {
-  height: 14px;
-  margin: 8px 6px;
+  height: 16px;
+  margin: 9px 4px;
 }
