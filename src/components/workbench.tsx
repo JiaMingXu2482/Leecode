@@ -371,6 +371,24 @@ export function Workbench({
     return true;
   }
 
+  // 改一道题的算法分类。题单里的分类偶尔归错（比如 BFS 的题被放进 DFS）。
+  async function setProblemCategory(problemId: string, category: string) {
+    setBusy(`/api/problems/${problemId}/category`);
+    setMessage("");
+    const response = await fetch(`/api/problems/${problemId}/category`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ category }),
+    });
+    setBusy("");
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      setMessage(payload.error ?? "改分类失败");
+      return;
+    }
+    router.refresh();
+  }
+
   async function syncLeetCode() {
     const ok = await requestJson("/api/sync/leetcode-cn", { cookie, syncCode: true });
     if (ok) router.refresh();
@@ -537,6 +555,7 @@ export function Workbench({
               onBulkToggle={bulkSetEnabled}
               onTogglePriority={togglePriorityCategory}
               onAddToToday={addProblemToToday}
+              onChangeCategory={setProblemCategory}
             />
           ) : null}
           {active === "stats" ? <StatsView data={data} completion={completion} /> : null}
@@ -1315,12 +1334,14 @@ function TopicsView({
   onBulkToggle,
   onTogglePriority,
   onAddToToday,
+  onChangeCategory,
 }: {
   data: DashboardData;
   onToggleEnabled: (problemId: string, isEnabled: boolean) => void;
   onBulkToggle: (problemIds: string[], isEnabled: boolean) => void;
   onTogglePriority: (name: string) => void;
   onAddToToday: (problemId: string) => Promise<boolean>;
+  onChangeCategory: (problemId: string, category: string) => void;
 }) {
   const [showScore, setShowScore] = useState(false);
   // 这一页不加载今天的计划，所以「已加入」只记本次会话点过的题；刷新后按钮
@@ -1333,30 +1354,46 @@ function TopicsView({
   // 顶部分类标签选中的那一类。一次只展示一类 —— 19 个分类全展开的话，每次进页面
   // 都得先手动折叠前面几类才能看到想刷的。"" = 没有记录，渲染时回退到第一类。
 
-  const byId = new Map(data.problems.map((problem) => [problem.frontendId, problem]));
   const topicTree =
     source === "CODEFUN"
       ? CODEFUN_TOPIC_GROUPS
       : source === "NOWCODER"
         ? NOWCODER_TOPIC_GROUPS
         : TOPIC_GROUPS;
-  const idBase = source === "CODEFUN" ? CODEFUN_ID_BASE : source === "NOWCODER" ? NOWCODER_ID_BASE : 0;
-  const groups = topicTree.map((group) => {
-    const items = group.ids
-      .map((id) => byId.get(idBase + id))
-      .filter((problem): problem is DashboardData["problems"][number] => Boolean(problem));
-    const enabledCount = items.filter((problem) => problem.isEnabled !== false).length;
-    // 已完成 = 做过至少一次（有 StudySession），和上方题库标签页的进度同一口径。
-    const doneCount = items.filter((problem) => problem.sessionCount > 0).length;
-    return {
-      name: group.name,
-      items,
-      enabledCount,
-      doneCount,
-      total: items.length,
-      allExcluded: items.length > 0 && enabledCount === 0,
-    };
-  });
+  // 分类顺序还是按代码里的分类树，但每道题归到哪一组，读的是数据库里的 tags ——
+  // 用户可以手动改某道题的分类（题单偶尔归错），静态树里的位置就不准了。
+  const categoryOrder = topicTree.map((group) => group.name);
+  const categoryNames = [...categoryOrder];
+  const sourceProblems = data.problems.filter((problem) => problem.source === source);
+  const byCategory = new Map<string, DashboardData["problems"]>();
+  for (const problem of sourceProblems) {
+    const name = problem.tags?.trim() || "其他";
+    const list = byCategory.get(name);
+    if (list) {
+      list.push(problem);
+    } else {
+      byCategory.set(name, [problem]);
+      if (!categoryNames.includes(name)) {
+        categoryNames.push(name);
+      }
+    }
+  }
+  const groups = categoryNames
+    .filter((name) => byCategory.has(name))
+    .map((name) => {
+      const items = byCategory.get(name) ?? [];
+      const enabledCount = items.filter((problem) => problem.isEnabled !== false).length;
+      // 已完成 = 做过至少一次（有 StudySession），和上方题库标签页的进度同一口径。
+      const doneCount = items.filter((problem) => problem.sessionCount > 0).length;
+      return {
+        name,
+        items,
+        enabledCount,
+        doneCount,
+        total: items.length,
+        allExcluded: items.length > 0 && enabledCount === 0,
+      };
+    });
   // Active topics keep study-plan order; fully-excluded topics sink to the bottom.
   const sorted = groups
     .map((group, index) => ({ group, index }))
@@ -1523,6 +1560,18 @@ function TopicsView({
                       <span className={`shrink-0 rounded px-2 py-0.5 text-xs font-semibold ${difficultyClass[problem.difficulty]}`}>
                         {difficultyCn[problem.difficulty]}
                       </span>
+                      <select
+                        value={problem.tags?.trim() || ""}
+                        onChange={(event) => onChangeCategory(problem.id, event.target.value)}
+                        title="改这道题的算法分类（题单里偶尔会归错）"
+                        className="h-6 shrink-0 rounded-md border border-line-strong bg-surface px-1 text-xs text-fg-subtle hover:bg-muted"
+                      >
+                        {categoryNames.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
                       <button
                         onClick={async () => {
                           setAdding(problem.id);

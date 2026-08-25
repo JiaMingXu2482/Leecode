@@ -197,6 +197,7 @@ const optionalColumns = [
   `ALTER TABLE "AppSettings" ADD COLUMN "reviewMode" TEXT NOT NULL DEFAULT 'CURVE'`,
   `ALTER TABLE "StudySession" ADD COLUMN "passRate" INTEGER`,
   `ALTER TABLE "Problem" ADD COLUMN "examOrigin" TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE "Problem" ADD COLUMN "categoryOverride" TEXT NOT NULL DEFAULT ''`,
 ];
 
 async function main() {

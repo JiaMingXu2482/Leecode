@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { fenceCode, insideFence, looksLikeCode, normalizeNewlines } from "./paste-code";
+import {
+  fenceCode,
+  insideFence,
+  looksLikeAsciiArt,
+  looksLikeCode,
+  normalizeNewlines,
+} from "./paste-code";
 
 describe("looksLikeCode", () => {
   it("认出 C++ 代码", () => {
@@ -124,5 +130,35 @@ describe("insideFence", () => {
 
   it("没有围栏返回 false", () => {
     expect(insideFence("就是一段说明")).toBe(false);
+  });
+});
+
+describe("looksLikeAsciiArt", () => {
+  it("认出靠空格对齐的树形图", () => {
+    expect(
+      looksLikeAsciiArt(`下标0
+   /  \
+下标1  下标2
+  / \   / \
+下标3 下标4 下标5 下标6`),
+    ).toBe(true);
+  });
+
+  it("认出缩进的结构说明", () => {
+    expect(looksLikeAsciiArt("根节点\n    子节点A\n    子节点B")).toBe(true);
+  });
+
+  it("普通中文笔记不算", () => {
+    expect(
+      looksLikeAsciiArt("这题用回溯做\n注意剪枝条件\n边界要写全"),
+    ).toBe(false);
+  });
+
+  it("单行不算", () => {
+    expect(looksLikeAsciiArt("下标1  下标2")).toBe(false);
+  });
+
+  it("已经带围栏的不再包", () => {
+    expect(looksLikeAsciiArt("```\n a  b\n c  d\n```")).toBe(false);
   });
 });

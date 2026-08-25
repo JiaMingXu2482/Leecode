@@ -13,7 +13,7 @@ import "prismjs/components/prism-python";
 import "prismjs/components/prism-java";
 import { useEffect, useRef } from "react";
 import { noteToPlainText } from "@/lib/notes";
-import { looksLikeCode, normalizeNewlines } from "@/lib/paste-code";
+import { looksLikeAsciiArt, looksLikeCode, normalizeNewlines } from "@/lib/paste-code";
 import { nextImageWidth, parseImageWidth, withImageWidth } from "@/lib/image-width";
 
 // 所见即所得的 Markdown 笔记编辑器（toast-ui）。
@@ -111,7 +111,7 @@ export default function WysiwygNoteEditor({
   value,
   onChange,
   draftKey,
-  height = "84rem",
+  height = "56rem",
   onUploadImage,
 }: {
   value: string;
@@ -220,10 +220,12 @@ export default function WysiwygNoteEditor({
         return;
       }
       const text = event.clipboardData?.getData("text/plain") ?? "";
-      if (!looksLikeCode(text)) {
+      // 代码用 cpp 高亮；靠空格对齐的图形（树形图等）不带语言，只要保住空格。
+      const language = looksLikeCode(text) ? "cpp" : looksLikeAsciiArt(text) ? "" : null;
+      if (language === null) {
         return; // 普通文字，照常粘贴
       }
-      if (!insertCodeBlock(editor, normalizeNewlines(text))) {
+      if (!insertCodeBlock(editor, normalizeNewlines(text), language)) {
         return; // 插不进去就退回默认粘贴，别把内容吞了
       }
       event.preventDefault();

@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db";
 import { orderDailyNewPicks } from "@/lib/new-problem-picker";
 import { orderTopicMatchedReviews } from "@/lib/review-picker";
 import { getPlanSettings } from "@/lib/settings";
-import { topicForFrontendId } from "@/lib/topics";
+import { topicForProblem } from "@/lib/topics";
 
 // "New" = not yet studied in this app; a historical LeetCode AC doesn't count.
 //
@@ -125,7 +125,7 @@ async function doEnsureTodayPlan(today: Date) {
             // frontendId/difficulty let us tell which categories today already
             // covers and how much of the easy quota is spent, so a top-up batch
             // doesn't repeat a type or add a second 简单.
-            problem: { select: { frontendId: true, difficulty: true } },
+            problem: { select: { frontendId: true, difficulty: true, tags: true } },
           },
         },
       },
@@ -148,6 +148,7 @@ async function doEnsureTodayPlan(today: Date) {
         problem: {
           select: {
             frontendId: true,
+            tags: true,
             isEnabled: true,
             reviewSchedule: { select: { id: true } },
             sessions: { select: { id: true }, take: 1 },
@@ -215,7 +216,7 @@ async function doEnsureTodayPlan(today: Date) {
   // 当天所有新题（已有的 + 顺延来的 + 待会儿新排的）的考点，用来给 Hot100 配复习。
   const todayNewTopics = (todayPlanRow?.items ?? [])
     .filter((item) => item.kind === "NEW")
-    .map((item) => topicForFrontendId(item.problem.frontendId));
+    .map((item) => topicForProblem(item.problem));
 
   for (const schedule of missingReviews) {
     sortOrder += 1;
@@ -276,7 +277,7 @@ async function doEnsureTodayPlan(today: Date) {
     ]);
     plannedTodayOnward.add(item.problemId);
     planned.add(item.problemId);
-    todayNewTopics.push(topicForFrontendId(item.problem.frontendId));
+    todayNewTopics.push(topicForProblem(item.problem));
   }
 
   if (newNeeded > 0) {
@@ -290,7 +291,7 @@ async function doEnsureTodayPlan(today: Date) {
       newNeeded,
       (todayPlanRow?.items ?? [])
         .filter((item) => item.kind === "NEW")
-        .map((item) => topicForFrontendId(item.problem.frontendId)),
+        .map((item) => topicForProblem(item.problem)),
       (todayPlanRow?.items ?? []).filter(
         (item) => item.kind === "NEW" && item.problem.difficulty === "EASY",
       ).length,
@@ -299,7 +300,7 @@ async function doEnsureTodayPlan(today: Date) {
       planned.add(problem.id);
       sortOrder += 1;
       addedMinutes += problem.estimatedNewMinutes;
-      todayNewTopics.push(topicForFrontendId(problem.frontendId));
+      todayNewTopics.push(topicForProblem(problem));
       await db.planItem.create({
         data: {
           dailyPlanId: plan.id,
@@ -405,7 +406,7 @@ export async function topUpNewProblems(today: Date) {
           select: {
             kind: true,
             carriedFromDate: true,
-            problem: { select: { frontendId: true, difficulty: true } },
+            problem: { select: { frontendId: true, difficulty: true, tags: true } },
           },
         },
       },
@@ -438,7 +439,7 @@ export async function topUpNewProblems(today: Date) {
       needed,
       plan.items
         .filter((item) => item.kind === "NEW")
-        .map((item) => topicForFrontendId(item.problem.frontendId)),
+        .map((item) => topicForProblem(item.problem)),
       plan.items.filter((item) => item.kind === "NEW" && item.problem.difficulty === "EASY").length,
     );
     if (!picks.length) {

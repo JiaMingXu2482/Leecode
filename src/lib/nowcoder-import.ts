@@ -35,11 +35,12 @@ export async function ensureNowcoderProblems() {
   // reach rows that already exist.
   const existing = await db.problem.findMany({
     where: { source: "NOWCODER" },
-    select: { id: true, frontendId: true, tags: true },
+    select: { id: true, frontendId: true, tags: true, categoryOverride: true },
   });
   let retagged = 0;
   for (const problem of existing) {
-    const want = nowcoderTopicForHj(problem.frontendId - NOWCODER_ID_BASE);
+    // 用户改过分类的以他为准，别被代码里的值冲掉。
+    const want = problem.categoryOverride || nowcoderTopicForHj(problem.frontendId - NOWCODER_ID_BASE);
     if (problem.tags !== want) {
       await db.problem.update({ where: { id: problem.id }, data: { tags: want } });
       retagged += 1;

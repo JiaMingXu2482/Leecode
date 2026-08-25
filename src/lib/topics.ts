@@ -44,6 +44,12 @@ export function topicForFrontendId(frontendId: number): string {
   return TOPIC_BY_ID.get(frontendId) ?? "其他";
 }
 
+// 优先用数据库里存的分类（tags）—— 用户可能在界面上改过归类，代码里的静态分类
+// 树就不准了。拿不到 tags 时回退到按题号推导。
+export function topicForProblem(problem: { frontendId: number; tags?: string | null }): string {
+  return problem.tags?.trim() || topicForFrontendId(problem.frontendId);
+}
+
 export function topicOrder(name: string): number {
   return TOPIC_INDEX.get(name) ?? TOPIC_GROUPS.length;
 }

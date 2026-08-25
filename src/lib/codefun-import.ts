@@ -65,6 +65,7 @@ export async function ensureCodefunProblems() {
       titleCn: true,
       examOrigin: true,
       hot100Order: true,
+      categoryOverride: true,
     },
   });
   const byFrontendId = new Map(existing.map((problem) => [problem.frontendId, problem]));
@@ -75,10 +76,12 @@ export async function ensureCodefunProblems() {
   // Keep the 题单-derived fields in step with the code — problems are created
   // once, so a later re-categorisation or re-order would otherwise never reach
   // rows that already exist.
-  CODEFUN_PROBLEMS.forEach(([pid, difficulty, category, title, origin], index) => {
+  CODEFUN_PROBLEMS.forEach(([pid, difficulty, codeCategory, title, origin], index) => {
     const frontendId = codefunFrontendId(pid);
     const order = listOrder(index);
     const row = byFrontendId.get(frontendId);
+    // 用户在界面上改过分类的，以他改的为准 —— 否则每次导入都会被代码里的值冲掉。
+    const category = row?.categoryOverride || codeCategory;
 
     if (!row) {
       toCreate.push({

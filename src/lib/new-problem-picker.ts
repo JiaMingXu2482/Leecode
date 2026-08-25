@@ -1,4 +1,4 @@
-import { topicForFrontendId } from "./topics";
+import { topicForProblem } from "./topics";
 
 export type NewPickCandidate = {
   id: string;
@@ -6,6 +6,8 @@ export type NewPickCandidate = {
   estimatedNewMinutes: number;
   difficulty: string;
   source: string;
+  // 数据库里存的分类。用户可能手动改过归类，有它就以它为准。
+  tags?: string | null;
 };
 
 // 每天最多排这么多道简单题，其余名额留给中等题。
@@ -55,7 +57,7 @@ export function orderDailyNewPicks<T extends NewPickCandidate>(
   if (codefun.length) {
     const byTopic = new Map<string, T[]>();
     for (const candidate of codefun) {
-      const topic = topicForFrontendId(candidate.frontendId);
+      const topic = topicForProblem(candidate);
       const list = byTopic.get(topic);
       if (list) {
         list.push(candidate);
@@ -84,7 +86,7 @@ export function orderDailyNewPicks<T extends NewPickCandidate>(
 
   const take = (candidate: T) => {
     used.add(candidate.id);
-    usedCategories.add(topicForFrontendId(candidate.frontendId));
+    usedCategories.add(topicForProblem(candidate));
     if (candidate.difficulty === "EASY") {
       easyCount += 1;
     }
@@ -113,7 +115,7 @@ export function orderDailyNewPicks<T extends NewPickCandidate>(
   for (const category of priorityCategories) {
     if (picks.length >= count) break;
     const hit = bestMatch(
-      (candidate) => topicForFrontendId(candidate.frontendId) === category,
+      (candidate) => topicForProblem(candidate) === category,
       easyCount < EASY_PER_DAY,
     );
     if (hit) take(hit);
@@ -121,7 +123,7 @@ export function orderDailyNewPicks<T extends NewPickCandidate>(
 
   while (picks.length < count) {
     const fresh = bestMatch(
-      (candidate) => !usedCategories.has(topicForFrontendId(candidate.frontendId)),
+      (candidate) => !usedCategories.has(topicForProblem(candidate)),
       easyCount < EASY_PER_DAY,
     );
     if (!fresh) break;

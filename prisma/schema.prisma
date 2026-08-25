@@ -51,6 +51,10 @@ model Problem {
   tags                   String
   // 真题场次（"2025.7.23-暑期实习(留学生)"），只有华为题单有。
   examOrigin             String               @default("")
+  // 手动改过的算法分类。题单里的分类偶尔会归错（比如把 BFS 的题放进 DFS），
+  // 用户在刷题计划页改完存这里。非空时优先于代码里的分类，且导入时不会被覆盖
+  // —— tags 每次导入都会按代码重新同步，没有这个字段的话手动改完就被冲掉了。
+  categoryOverride       String               @default("")
   hot100Order            Int
   estimatedNewMinutes    Int
   estimatedReviewMinutes Int

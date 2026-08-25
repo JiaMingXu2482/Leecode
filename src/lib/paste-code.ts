@@ -76,6 +76,32 @@ export function normalizeNewlines(text: string): string {
   return text.replace(/\r\n?/g, "\n");
 }
 
+// 对齐排版的文本（树形图、缩进的结构说明）。
+//
+// 为什么需要单独识别：Markdown 的普通段落存不住连续空格和行首缩进 —— toast-ui
+// 的序列化器会把「下标1  下标2」压成「下标1 下标2」，树形图就散了。能原样保住
+// 空格的只有代码块，所以这类文本粘贴时也包进围栏（不带语言，不做语法着色）。
+export function looksLikeAsciiArt(text: string): boolean {
+  const normalized = normalizeNewlines(text);
+  if (normalized.includes("```")) {
+    return false;
+  }
+  const lines = normalized.split("\n").filter((line) => line.trim());
+  if (lines.length < 2) {
+    return false;
+  }
+  // 行首缩进 2 空格以上，或者行内出现 2 个以上连续空格 —— 都是靠空格对齐的信号。
+  const aligned = lines.filter(
+    (line) => /^ {2,}\S/.test(line) || /\S {2,}\S/.test(line),
+  ).length;
+  if (aligned < 1) {
+    return false;
+  }
+  // 至少有一行带这些「画图」字符，或者过半的行都在靠空格对齐。
+  const arty = lines.some((line) => /[/\\|+_├└─┌┐┘┴┬┼]/.test(line));
+  return arty || aligned / lines.length >= 0.5;
+}
+
 export function fenceCode(text: string, language = "cpp"): string {
   const body = normalizeNewlines(text).replace(/\s+$/, "");
   return `\`\`\`${language}\n${body}\n\`\`\`\n`;

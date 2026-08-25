@@ -411,3 +411,24 @@ textarea {
 .tui-note-editor .toastui-editor-defaultUI {
   height: 100%;
 }
+
+/* 工具栏图标缩到一半。图标是一张 base64 精灵图，靠 background-position 按 px
+   定位（20 多条规则），改 background-size 会让每个图标都错位 —— 所以用
+   transform 整体缩放，再用负 margin 把缩放后多出来的空隙收掉。 */
+.tui-note-editor .toastui-editor-defaultUI-toolbar {
+  height: 30px;
+  padding: 0 12px;
+}
+.tui-note-editor .toastui-editor-defaultUI-toolbar button {
+  width: 16px;
+  height: 16px;
+  margin: 7px 6px;
+}
+.tui-note-editor .toastui-editor-toolbar-icons {
+  transform: scale(0.5);
+  transform-origin: top left;
+}
+.tui-note-editor .toastui-editor-toolbar-divider {
+  height: 14px;
+  margin: 8px 6px;
+}

@@ -5,7 +5,7 @@ import { orderDailyNewPicks } from "@/lib/new-problem-picker";
 import { orderTopicMatchedReviews } from "@/lib/review-picker";
 import { calculateReviewRiskScore } from "@/lib/risk";
 import { getPlanSettings } from "@/lib/settings";
-import { topicForFrontendId } from "@/lib/topics";
+import { topicForProblem } from "@/lib/topics";
 import {
   groupsNamed,
   problemLabel,
@@ -73,7 +73,7 @@ export async function regenerateWeek() {
           estimatedMinutes: true,
           kind: true,
           carriedFromDate: true,
-          problem: { select: { frontendId: true, difficulty: true } },
+          problem: { select: { frontendId: true, difficulty: true, tags: true } },
         },
       },
     },
@@ -133,7 +133,7 @@ export async function regenerateWeek() {
       remainingQuota,
       // Completed problems stay on the day, so their categories are taken and
       // an already-done 简单 counts against the day's easy allowance.
-      keptNew.map((item) => topicForFrontendId(item.problem.frontendId)),
+      keptNew.map((item) => topicForProblem(item.problem)),
       keptNew.filter((item) => item.problem.difficulty === "EASY").length,
     );
     for (const problem of picks) {
@@ -148,8 +148,8 @@ export async function regenerateWeek() {
       })),
     );
     topicsByDate.set(key, [
-      ...keptNew.map((item) => topicForFrontendId(item.problem.frontendId)),
-      ...picks.map((problem) => topicForFrontendId(problem.frontendId)),
+      ...keptNew.map((item) => topicForProblem(item.problem)),
+      ...picks.map((problem) => topicForProblem(problem)),
     ]);
   }
 
@@ -518,13 +518,13 @@ export async function getWeakProblems() {
   const statById = new Map(stats.map((stat) => [stat.problemId, stat]));
   const problems = await db.problem.findMany({
     where: { id: { in: stats.map((stat) => stat.problemId) }, isEnabled: true },
-    select: { id: true, frontendId: true, titleCn: true },
+    select: { id: true, frontendId: true, titleCn: true, tags: true },
   });
   const rows = problems
     .map((problem) => ({
       frontendId: problem.frontendId,
       titleCn: problem.titleCn,
-      category: topicForFrontendId(problem.frontendId),
+      category: topicForProblem(problem),
       avg: statById.get(problem.id)?._avg.feelingScore ?? 0,
       count: statById.get(problem.id)?._count._all ?? 0,
     }))
@@ -581,6 +581,7 @@ export async function listProblems(options: {
         titleCn: true,
         difficulty: true,
         examOrigin: true,
+        tags: true,
         _count: { select: { sessions: true } },
       },
       orderBy: { hot100Order: "asc" },
@@ -595,7 +596,7 @@ export async function listProblems(options: {
       label: problemLabel(row.frontendId),
       titleCn: row.titleCn,
       difficulty: row.difficulty,
-      category: topicForFrontendId(row.frontendId),
+      category: topicForProblem(row),
       source: sourceOfFrontendId(row.frontendId),
       examOrigin: row.examOrigin,
       doneCount: row._count.sessions,
@@ -614,6 +615,7 @@ export async function getProblemHistory(frontendId: number) {
       difficulty: true,
       isEnabled: true,
       examOrigin: true,
+      tags: true,
       leetcodeCnUrl: true,
       reviewSchedule: { select: { nextReviewDate: true, stage: true } },
       sessions: {
@@ -643,7 +645,7 @@ export async function getProblemHistory(frontendId: number) {
     label: problemLabel(problem.frontendId),
     titleCn: problem.titleCn,
     difficulty: problem.difficulty,
-    category: topicForFrontendId(problem.frontendId),
+    category: topicForProblem(problem),
     source: sourceOfFrontendId(problem.frontendId),
     examOrigin: problem.examOrigin,
     isEnabled: problem.isEnabled,
