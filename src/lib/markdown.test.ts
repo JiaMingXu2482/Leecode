@@ -25,6 +25,18 @@ describe("markdownToHtml", () => {
     expect(html).toContain('<span class="hljs-keyword">for</span>');
   });
 
+  it("图片按 URL 里的 ?w= 还原显示宽度", () => {
+    const html = render("![图](/api/note-images/abc?w=400)");
+    expect(html).toContain('src="/api/note-images/abc?w=400"');
+    expect(html).toContain('style="width:400px"');
+  });
+
+  it("没有 ?w= 的图片不加宽度样式", () => {
+    const html = render("![图](/api/note-images/abc)");
+    expect(html).toContain("<img");
+    expect(html).not.toContain("style=\"width");
+  });
+
   it("代码块里不做任何行内处理", () => {
     const html = render("```\ndp[i] = **not bold** and `not code` and 53\n```");
     expect(html).toContain("**not bold**");

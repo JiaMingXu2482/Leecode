@@ -14,6 +14,7 @@ import "prismjs/components/prism-java";
 import { useEffect, useRef } from "react";
 import { noteToPlainText } from "@/lib/notes";
 import { looksLikeCode, normalizeNewlines } from "@/lib/paste-code";
+import { nextImageWidth, parseImageWidth, withImageWidth } from "@/lib/image-width";
 
 // 所见即所得的 Markdown 笔记编辑器（toast-ui）。
 //
@@ -65,17 +66,60 @@ function insertCodeBlock(editor: Editor, text: string, language = "cpp"): boolea
   }
 }
 
+// 把文档里 imageUrl 等于 oldUrl 的那个图片节点改成 newUrl。
+// 改节点属性（而不是直接改 DOM）才会写回 Markdown，尺寸才存得住。
+// 和 insertCodeBlock 一样用了非公开的 view，所以整段防御，失败返回 false。
+function updateImageUrl(editor: Editor, oldUrl: string, newUrl: string): boolean {
+  try {
+    const mode = editor.getCurrentModeEditor() as unknown as {
+      view?: {
+        state: {
+          doc: {
+            descendants: (fn: (node: PmNode, pos: number) => void) => void;
+          };
+          tr: PmTr;
+        };
+        dispatch: (tr: unknown) => void;
+      };
+    };
+    const view = mode?.view;
+    if (!view) {
+      return false;
+    }
+    let target: { pos: number; node: PmNode } | null = null;
+    view.state.doc.descendants((node, pos) => {
+      if (!target && node.type?.name === "image" && node.attrs?.imageUrl === oldUrl) {
+        target = { pos, node };
+      }
+    });
+    if (!target) {
+      return false;
+    }
+    const { pos, node } = target as { pos: number; node: PmNode };
+    const tr = view.state.tr.setNodeMarkup(pos, null, { ...node.attrs, imageUrl: newUrl });
+    view.dispatch(tr);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+type PmNode = { type?: { name?: string }; attrs?: Record<string, unknown> };
+type PmTr = { setNodeMarkup: (pos: number, type: null, attrs: Record<string, unknown>) => unknown };
+
 export default function WysiwygNoteEditor({
   value,
   onChange,
   draftKey,
-  height = "28rem",
+  height = "84rem",
   onUploadImage,
 }: {
   value: string;
   onChange: (next: string) => void;
   // localStorage key，防止误关页面丢草稿；提交成功后由调用方清掉。
   draftKey?: string;
+  // 外层容器的高度。编辑器本身填满容器（toast-ui 传的是 100%），这样容器上的
+  // CSS resize 才能真的拖动编辑区大小。
   height?: string;
   // 粘贴/拖入图片时调用，返回图片 URL（失败返回 null）。
   onUploadImage?: (file: File) => Promise<string | null>;
@@ -110,7 +154,7 @@ export default function WysiwygNoteEditor({
     const dark = document.documentElement.classList.contains("dark");
     const editor = new Editor({
       el: holder,
-      height,
+      height: "100%",
       initialValue: initial,
       initialEditType: "wysiwyg",
       previewStyle: "vertical",
@@ -187,7 +231,46 @@ export default function WysiwygNoteEditor({
     }
     document.addEventListener("paste", onPaste, true);
 
+    // 图片尺寸：点一下在 240 / 400 / 640 / 原始 之间循环。
+    // toast-ui 的 image 节点没有宽高属性，Markdown 也存不下尺寸，所以把宽度写进
+    // 图片 URL 的 query（?w=400），编辑器和渲染两端都读它。
+    function applyWidths() {
+      for (const img of root.querySelectorAll("img")) {
+        const width = parseImageWidth(img.getAttribute("src") ?? "");
+        img.style.width = width ? `${width}px` : "";
+        if (!img.title) {
+          img.title = "点击切换图片大小";
+        }
+        img.style.cursor = "pointer";
+      }
+    }
+
+    function onClickImage(event: MouseEvent) {
+      const target = event.target;
+      if (!(target instanceof HTMLImageElement) || !root.contains(target)) {
+        return;
+      }
+      const src = target.getAttribute("src") ?? "";
+      const next = withImageWidth(src, nextImageWidth(src));
+      // 改的是节点属性而不是 DOM，这样会写回 Markdown，存下来也保留尺寸。
+      if (!updateImageUrl(editor, src, next)) {
+        // 拿不到 ProseMirror 就退回只改样式，至少当前视图能变
+        target.style.width = parseImageWidth(next) ? `${parseImageWidth(next)}px` : "";
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    root.addEventListener("click", onClickImage, true);
+    // 图片是异步渲染进来的（粘贴上传、切换文档），用 observer 兜住所有时机。
+    const observer = new MutationObserver(() => applyWidths());
+    observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["src"] });
+    applyWidths();
+
     return () => {
+      observer.disconnect();
+      root.removeEventListener("click", onClickImage, true);
       document.removeEventListener("paste", onPaste, true);
       editor.destroy();
       editorRef.current = null;
@@ -196,5 +279,12 @@ export default function WysiwygNoteEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return <div ref={holderRef} className="tui-note-editor mt-2" />;
+  // 必须是两层：toast-ui 会把 height 选项直接写成挂载节点的行内样式，挂载节点
+  // 和外层是同一个 div 的话，React 传的高度会被它覆盖掉。所以外层由我们控制
+  // 高度和 resize，内层留给 toast-ui（它自己填 height:100%）。
+  return (
+    <div className="tui-note-editor mt-2" style={{ height }}>
+      <div ref={holderRef} className="tui-note-editor-inner" />
+    </div>
+  );
 }

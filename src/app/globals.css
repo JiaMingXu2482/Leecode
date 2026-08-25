@@ -398,3 +398,16 @@ textarea {
 .tui-note-editor .toastui-editor-contents pre .token.symbol {
   color: #e06c75;
 }
+
+/* 编辑区高度由外层容器决定（toast-ui 的 height 传的是 100%），这样这里的
+   resize 才能真的拖动编辑区大小 —— 觉得太高太矮都可以自己拖。 */
+.tui-note-editor {
+  resize: vertical;
+  overflow: hidden;
+  min-height: 16rem;
+}
+/* 内层是 toast-ui 的挂载节点，它自己会写 height:100%；外层负责实际高度。 */
+.tui-note-editor-inner,
+.tui-note-editor .toastui-editor-defaultUI {
+  height: 100%;
+}

@@ -1,6 +1,7 @@
 import { CODEFUN_ID_BASE, CODEFUN_PROBLEMS } from "./codefun-problems";
 import { NOWCODER_ID_BASE, NOWCODER_TOPIC_GROUPS } from "./nowcoder-problems";
 import { highlightFence } from "./highlight";
+import { parseImageWidth } from "./image-width";
 import { escapeHtml } from "./notes";
 import { TOPIC_GROUPS } from "./topics";
 
@@ -87,7 +88,13 @@ function renderInline(text: string) {
         if (!safe) {
           return match;
         }
-        slots.push(`<img src="${escapeAttr(safe)}" alt="${escapeAttr(alt)}" loading="lazy">`);
+        // 显示宽度编码在 URL 的 ?w= 里（见 lib/image-width.ts）——Markdown 的图片
+        // 语法存不下尺寸，所以在编辑器里调过大小的图，靠这个参数在渲染时还原。
+        const width = parseImageWidth(safe);
+        const style = width ? ` style="width:${width}px"` : "";
+        slots.push(
+          `<img src="${escapeAttr(safe)}" alt="${escapeAttr(alt)}" loading="lazy"${style}>`,
+        );
         return `<L${slots.length - 1}>`;
       });
       html = html.replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, (match, label: string, href: string) => {
