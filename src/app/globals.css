@@ -83,7 +83,9 @@ textarea {
 /* 算法总结的 Markdown 正文。Tailwind preflight 把标题/列表/表格都抹平了，
    这里按排版需要重新给回来。选择器都限定在 .md-body 内，不影响别的页面。 */
 .md-body {
-  font-size: 0.9375rem;
+  /* 和侧边栏、编辑器统一到 14px（Tailwind 的 text-sm）。
+     .md-compact 有自己的字号覆盖，今日任务/历史笔记那边的紧凑显示不受影响。 */
+  font-size: 0.875rem;
   line-height: 1.75;
   color: var(--fg);
 }
@@ -173,7 +175,8 @@ textarea {
 }
 .md-body pre code {
   font-family: Consolas, "Courier New", ui-monospace, monospace;
-  font-size: 0.8125rem;
+  /* 跟正文同大小：笔记里代码占比很高，代码块比正文小一号会让整栏看起来偏小。 */
+  font-size: 0.875rem;
   line-height: 1.6;
 }
 /* 表格同理，宽表格在自己的容器里滚 */

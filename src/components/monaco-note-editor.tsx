@@ -209,7 +209,8 @@ export default function MonacoNoteEditor({
         }
         options={{
           fontFamily: 'Consolas, "Courier New", monospace',
-          fontSize: 15,
+          // 14px = Tailwind 的 text-sm，和侧边栏、右侧预览统一。
+          fontSize: 14,
           lineHeight: 26,
           minimap: { enabled: false },
           wordWrap: "on",
