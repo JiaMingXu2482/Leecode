@@ -6,6 +6,11 @@ import { imageFilesFrom } from "@/lib/note-image-upload";
 import { fenceCode, insideFence, looksLikeCode } from "@/lib/paste-code";
 import { noteToPlainText } from "@/lib/notes";
 
+// Monaco 编辑器实例的类型，父组件做滚动同步时要用。
+export type NoteEditorInstance = Parameters<
+  NonNullable<React.ComponentProps<typeof Editor>["onMount"]>
+>[0];
+
 // Serve Monaco's assets from our own origin — the default jsdelivr CDN is
 // unreliable from China, where this app is hosted and used.
 loader.config({ paths: { vs: "/monaco/vs" } });
@@ -21,6 +26,7 @@ export default function MonacoNoteEditor({
   height = "28rem",
   onPasteImage,
   autoFenceCode = false,
+  onEditorReady,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -35,6 +41,8 @@ export default function MonacoNoteEditor({
   // 粘贴纯文本时，如果看着像代码就自动包一层 ```cpp 围栏，这样渲染出来是
   // 代码框、和手写的说明文字分得开。
   autoFenceCode?: boolean;
+  // 编辑器挂载/卸载时回调，父组件拿它做左右滚动同步。卸载时传 null。
+  onEditorReady?: (editor: NoteEditorInstance | null) => void;
 }) {
   const [initial] = useState(() => {
     let text = noteToPlainText(value);
@@ -69,7 +77,12 @@ export default function MonacoNoteEditor({
   // 冒泡阶段的监听要看它有没有 stopPropagation、节点挂在哪、用的是 EditContext
   // 还是 textarea 实现 —— 这些都随版本变。捕获阶段在所有后代监听之前跑，
   // 与这些细节无关。用 hasTextFocus() 把作用范围限定在本编辑器聚焦时。
-  const editorRef = useRef<Parameters<NonNullable<React.ComponentProps<typeof Editor>["onMount"]>>[0] | null>(null);
+  const editorRef = useRef<NoteEditorInstance | null>(null);
+  const readyRef = useRef(onEditorReady);
+  useEffect(() => {
+    readyRef.current = onEditorReady;
+  });
+  useEffect(() => () => readyRef.current?.(null), []);
   useEffect(() => {
     if (!onPasteImage && !autoFenceCode) {
       return;
@@ -175,6 +188,7 @@ export default function MonacoNoteEditor({
         defaultValue={initial}
         onMount={(editor) => {
           editorRef.current = editor;
+          onEditorReady?.(editor);
         }}
         onChange={(next) => {
           const text = next ?? "";

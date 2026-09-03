@@ -8,12 +8,14 @@ import { attachCopyButtons } from "@/lib/code-copy";
 import { markdownToHtml } from "@/lib/markdown";
 import { uploadNoteImage } from "@/lib/note-image-upload";
 import { boxAfterDrag, boxAfterResize, isPanelBox, type PanelBox } from "@/lib/panel-box";
+import type { NoteEditorInstance } from "@/components/monaco-note-editor";
+import { syncedScrollTop } from "@/lib/scroll-sync";
 
 // Monaco is heavy and only needed once the user actually edits.
 const MonacoNoteEditor = dynamic(() => import("@/components/monaco-note-editor"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-[64rem] items-center justify-center rounded-md border border-line-strong text-sm text-fg-subtle">
+    <div className="flex h-[80rem] items-center justify-center rounded-md border border-line-strong text-sm text-fg-subtle">
       编辑器加载中…
     </div>
   ),
@@ -592,6 +594,68 @@ function NoteEditor({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rendered = useMemo(() => markdownToHtml(draft.contentMarkdown), [draft.contentMarkdown]);
 
+  // 左右滚动同步。两边内容高度不一样（预览有标题样式、代码块配色、图片），
+  // 所以按「滚动比例」换算而不是按像素：一边滚到 30%，另一边也滚到 30%。
+  //
+  // syncingRef 防死循环：程序设置 scrollTop 同样会触发对方的 scroll 事件，
+  // 不挡住的话两边会互相推着抖。
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const editorRef = useRef<NoteEditorInstance | null>(null);
+  const disposeRef = useRef<{ dispose: () => void } | null>(null);
+  const syncingRef = useRef(false);
+
+  function withSyncLock(run: () => void) {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+    try {
+      run();
+    } finally {
+      // 用微任务复位：对方的 scroll 事件是同步派发的，这一轮之内要一直挡住。
+      queueMicrotask(() => {
+        syncingRef.current = false;
+      });
+    }
+  }
+
+  function attachEditor(editor: NoteEditorInstance | null) {
+    disposeRef.current?.dispose();
+    disposeRef.current = null;
+    editorRef.current = editor;
+    if (!editor) return;
+    disposeRef.current = editor.onDidScrollChange(() => {
+      const box = previewRef.current;
+      if (!box) return;
+      const next = syncedScrollTop(
+        {
+          scrollTop: editor.getScrollTop(),
+          scrollHeight: editor.getScrollHeight(),
+          clientHeight: editor.getLayoutInfo().height,
+        },
+        { scrollHeight: box.scrollHeight, clientHeight: box.clientHeight },
+      );
+      if (next === null) return;
+      withSyncLock(() => {
+        box.scrollTop = next;
+      });
+    });
+  }
+
+  function onPreviewScroll() {
+    const editor = editorRef.current;
+    const box = previewRef.current;
+    if (!editor || !box) return;
+    const next = syncedScrollTop(
+      { scrollTop: box.scrollTop, scrollHeight: box.scrollHeight, clientHeight: box.clientHeight },
+      { scrollHeight: editor.getScrollHeight(), clientHeight: editor.getLayoutInfo().height },
+    );
+    if (next === null) return;
+    withSyncLock(() => {
+      editor.setScrollTop(next);
+    });
+  }
+
+  useEffect(() => () => disposeRef.current?.dispose(), []);
+
   async function addImage(file: File) {
     setImageError("");
     setUploading(true);
@@ -695,13 +759,20 @@ ${markdown}
         <MonacoNoteEditor
           value={draft.contentMarkdown}
           language="markdown"
-          height="64rem"
+          height="80rem"
           draftKey={DRAFT_KEY}
           onChange={(next) => onChange({ ...draft, contentMarkdown: next })}
           onPasteImage={addImage}
+          onEditorReady={attachEditor}
         />
         {preview ? (
-          <div className="max-h-[64rem] overflow-auto rounded-md border border-line p-4">
+          <div
+            ref={previewRef}
+            onScroll={onPreviewScroll}
+            /* mt-2 和 MonacoNoteEditor 外层的 mt-2 对齐；高度也用固定值而不是
+               max-h，否则内容不够长时右框会比左框矮一截。 */
+            className="mt-2 h-[80rem] overflow-auto rounded-md border border-line p-4"
+          >
             <NoteBody html={rendered.html} />
           </div>
         ) : null}
