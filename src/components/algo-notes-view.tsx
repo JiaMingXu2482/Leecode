@@ -13,7 +13,7 @@ import { boxAfterDrag, boxAfterResize, isPanelBox, type PanelBox } from "@/lib/p
 const MonacoNoteEditor = dynamic(() => import("@/components/monaco-note-editor"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-[56rem] items-center justify-center rounded-md border border-line-strong text-sm text-fg-subtle">
+    <div className="flex h-[64rem] items-center justify-center rounded-md border border-line-strong text-sm text-fg-subtle">
       编辑器加载中…
     </div>
   ),
@@ -695,13 +695,13 @@ ${markdown}
         <MonacoNoteEditor
           value={draft.contentMarkdown}
           language="markdown"
-          height="56rem"
+          height="64rem"
           draftKey={DRAFT_KEY}
           onChange={(next) => onChange({ ...draft, contentMarkdown: next })}
           onPasteImage={addImage}
         />
         {preview ? (
-          <div className="max-h-[56rem] overflow-auto rounded-md border border-line p-4">
+          <div className="max-h-[64rem] overflow-auto rounded-md border border-line p-4">
             <NoteBody html={rendered.html} />
           </div>
         ) : null}
