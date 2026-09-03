@@ -13,7 +13,7 @@ import { boxAfterDrag, boxAfterResize, isPanelBox, type PanelBox } from "@/lib/p
 const MonacoNoteEditor = dynamic(() => import("@/components/monaco-note-editor"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-[32rem] items-center justify-center rounded-md border border-line-strong text-sm text-fg-subtle">
+    <div className="flex h-[56rem] items-center justify-center rounded-md border border-line-strong text-sm text-fg-subtle">
       编辑器加载中…
     </div>
   ),
@@ -47,6 +47,7 @@ export default function AlgoNotesView({ initialNotes }: { initialNotes: AlgoNote
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [autoSavedAt, setAutoSavedAt] = useState<Date | null>(null);
 
   const selected = notes.find((note) => note.id === selectedId) ?? null;
 
@@ -122,6 +123,66 @@ export default function AlgoNotesView({ initialNotes }: { initialNotes: AlgoNote
     } catch {}
   }
 
+  // 每分钟自动存一次，防止写着写着被刷新/关标签页冲掉。
+  //
+  // 和手动「保存」的区别：不关闭编辑器、不清草稿、不改选中项 —— 只是把内容落库。
+  // 新笔记第一次自动保存会 POST 建一条，然后把返回的 id 写回 draft，后续都走
+  // PATCH；不这么做的话每分钟都会新建一篇。
+  //
+  // 用 ref 存最近一次保存过的内容，只有真的改动过才发请求，避免空转。
+  const draftRef = useRef(draft);
+  const savedSnapshotRef = useRef("");
+  const autoSavingRef = useRef(false);
+  // 每次渲染后刷新，不能在渲染期间写 ref（react-hooks/refs）。
+  useEffect(() => {
+    draftRef.current = draft;
+  });
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void (async () => {
+        const current = draftRef.current;
+        if (!current || autoSavingRef.current) return;
+        // 标题和正文都空的草稿不值得建一条笔记
+        if (!current.title.trim() && !current.contentMarkdown.trim()) return;
+        const snapshot = JSON.stringify([current.title, current.category, current.contentMarkdown]);
+        if (snapshot === savedSnapshotRef.current) return;
+
+        autoSavingRef.current = true;
+        try {
+          const body = {
+            title: current.title,
+            category: current.category,
+            contentMarkdown: current.contentMarkdown,
+          };
+          const response = await fetch(
+            current.id ? `/api/algo-notes/${current.id}` : "/api/algo-notes",
+            {
+              method: current.id ? "PATCH" : "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(body),
+            },
+          );
+          const payload = (await response.json().catch(() => ({}))) as {
+            notes?: AlgoNoteSummary[];
+            id?: string;
+          };
+          if (!response.ok) return;
+          savedSnapshotRef.current = snapshot;
+          if (payload.notes) setNotes(payload.notes);
+          // 新建的笔记拿到 id 后写回草稿，下一次自动保存才会走 PATCH。
+          if (!current.id && payload.id) {
+            setDraft((prev) => (prev && !prev.id ? { ...prev, id: payload.id ?? null } : prev));
+          }
+          setAutoSavedAt(new Date());
+        } finally {
+          autoSavingRef.current = false;
+        }
+      })();
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
   async function remove(note: AlgoNoteSummary) {
     if (!window.confirm(`删除「${note.title}」？不可恢复。`)) return;
     const result = await send(`/api/algo-notes/${note.id}`, "DELETE");
@@ -191,6 +252,7 @@ export default function AlgoNotesView({ initialNotes }: { initialNotes: AlgoNote
         {draft ? (
           <NoteEditor
             draft={draft}
+            autoSavedAt={autoSavedAt}
             categories={categories}
             busy={busy}
             onChange={setDraft}
@@ -509,6 +571,7 @@ function NoteAssistant({
 
 function NoteEditor({
   draft,
+  autoSavedAt,
   categories,
   busy,
   onChange,
@@ -516,6 +579,7 @@ function NoteEditor({
   onCancel,
 }: {
   draft: Draft;
+  autoSavedAt: Date | null;
   categories: string[];
   busy: boolean;
   onChange: (next: Draft) => void;
@@ -604,6 +668,11 @@ ${markdown}
             }
           }}
         />
+        {autoSavedAt ? (
+          <span className="shrink-0 text-xs text-fg-subtle" title="每分钟自动保存一次">
+            已自动保存 {autoSavedAt.toTimeString().slice(0, 5)}
+          </span>
+        ) : null}
         <button
           onClick={onSave}
           disabled={busy}
@@ -626,13 +695,13 @@ ${markdown}
         <MonacoNoteEditor
           value={draft.contentMarkdown}
           language="markdown"
-          height="32rem"
+          height="56rem"
           draftKey={DRAFT_KEY}
           onChange={(next) => onChange({ ...draft, contentMarkdown: next })}
           onPasteImage={addImage}
         />
         {preview ? (
-          <div className="max-h-[32rem] overflow-auto rounded-md border border-line p-4">
+          <div className="max-h-[56rem] overflow-auto rounded-md border border-line p-4">
             <NoteBody html={rendered.html} />
           </div>
         ) : null}
