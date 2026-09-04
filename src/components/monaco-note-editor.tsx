@@ -211,7 +211,9 @@ export default function MonacoNoteEditor({
           fontFamily: 'Consolas, "Courier New", monospace',
           // 14px = Tailwind 的 text-sm，和侧边栏、右侧预览统一。
           fontSize: 14,
-          lineHeight: 26,
+          // 22 ≈ 1.6 × 14，和右侧预览的 line-height 一致；行距差会让同样字号的
+          // 左栏看起来更大更松。
+          lineHeight: 22,
           minimap: { enabled: false },
           wordWrap: "on",
           tabSize: 4,
