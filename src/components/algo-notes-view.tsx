@@ -1,6 +1,6 @@
 "use client";
 
-import { ImagePlus, Pencil, Plus, Save, Search, Sparkles, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Save, Search, Sparkles, Trash2, X } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AlgoNoteSummary } from "@/lib/algo-notes";
@@ -8,11 +8,10 @@ import { attachCopyButtons } from "@/lib/code-copy";
 import { markdownToHtml } from "@/lib/markdown";
 import { uploadNoteImage } from "@/lib/note-image-upload";
 import { boxAfterDrag, boxAfterResize, isPanelBox, type PanelBox } from "@/lib/panel-box";
-import type { NoteEditorInstance } from "@/components/monaco-note-editor";
 import { syncedScrollTop } from "@/lib/scroll-sync";
 
-// Monaco is heavy and only needed once the user actually edits.
-const MonacoNoteEditor = dynamic(() => import("@/components/monaco-note-editor"), {
+// 和今日任务的做题反馈用同一个所见即所得编辑器：图片和代码块直接在正文里渲染。
+const WysiwygNoteEditor = dynamic(() => import("@/components/wysiwyg-note-editor"), {
   ssr: false,
   loading: () => (
     <div className="flex h-[80rem] items-center justify-center rounded-md border border-line-strong text-sm text-fg-subtle">
@@ -590,8 +589,6 @@ function NoteEditor({
 }) {
   const [preview, setPreview] = useState(true);
   const [imageError, setImageError] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const rendered = useMemo(() => markdownToHtml(draft.contentMarkdown), [draft.contentMarkdown]);
 
   // 左右滚动同步。两边内容高度不一样（预览有标题样式、代码块配色、图片），
@@ -600,8 +597,6 @@ function NoteEditor({
   // syncingRef 防死循环：程序设置 scrollTop 同样会触发对方的 scroll 事件，
   // 不挡住的话两边会互相推着抖。
   const previewRef = useRef<HTMLDivElement | null>(null);
-  const editorRef = useRef<NoteEditorInstance | null>(null);
-  const disposeRef = useRef<{ dispose: () => void } | null>(null);
   const syncingRef = useRef(false);
 
   function withSyncLock(run: () => void) {
@@ -617,48 +612,68 @@ function NoteEditor({
     }
   }
 
-  function attachEditor(editor: NoteEditorInstance | null) {
-    disposeRef.current?.dispose();
-    disposeRef.current = null;
-    editorRef.current = editor;
-    if (!editor) return;
-    disposeRef.current = editor.onDidScrollChange(() => {
+  // 编辑器换成所见即所得后，滚动同步从 Monaco 的 API 改成监听它的滚动容器 ——
+  // toast-ui 是普通 DOM，直接用 scroll 事件和 scrollTop 就够了。
+  // 容器要在编辑器挂载后才找得到，所以用 MutationObserver 等它出现。
+  const editorBoxRef = useRef<HTMLDivElement | null>(null);
+  const scrollElRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const host = editorBoxRef.current;
+    if (!host) return;
+
+    function onEditorScroll() {
+      const el = scrollElRef.current;
       const box = previewRef.current;
-      if (!box) return;
+      if (!el || !box) return;
       const next = syncedScrollTop(
-        {
-          scrollTop: editor.getScrollTop(),
-          scrollHeight: editor.getScrollHeight(),
-          clientHeight: editor.getLayoutInfo().height,
-        },
+        { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight },
         { scrollHeight: box.scrollHeight, clientHeight: box.clientHeight },
       );
       if (next === null) return;
       withSyncLock(() => {
         box.scrollTop = next;
       });
-    });
-  }
+    }
+
+    function bind() {
+      // 真正滚动的是 .toastui-editor-contents 本身（它自己 overflow:auto），
+      // 不是它的父节点 —— 父节点 scrollHeight == clientHeight，绑上去不会有事件。
+      const target = host!.querySelector<HTMLElement>(
+        ".toastui-editor-ww-container .toastui-editor-contents",
+      );
+      if (!target || target === scrollElRef.current) return;
+      scrollElRef.current?.removeEventListener("scroll", onEditorScroll);
+      scrollElRef.current = target;
+      target.addEventListener("scroll", onEditorScroll, { passive: true });
+    }
+
+    bind();
+    const observer = new MutationObserver(bind);
+    observer.observe(host, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      scrollElRef.current?.removeEventListener("scroll", onEditorScroll);
+      scrollElRef.current = null;
+    };
+  }, []);
 
   function onPreviewScroll() {
-    const editor = editorRef.current;
+    const el = scrollElRef.current;
     const box = previewRef.current;
-    if (!editor || !box) return;
+    if (!el || !box) return;
     const next = syncedScrollTop(
       { scrollTop: box.scrollTop, scrollHeight: box.scrollHeight, clientHeight: box.clientHeight },
-      { scrollHeight: editor.getScrollHeight(), clientHeight: editor.getLayoutInfo().height },
+      { scrollHeight: el.scrollHeight, clientHeight: el.clientHeight },
     );
     if (next === null) return;
     withSyncLock(() => {
-      editor.setScrollTop(next);
+      el.scrollTop = next;
     });
   }
 
-  useEffect(() => () => disposeRef.current?.dispose(), []);
-
   async function addImage(file: File) {
     setImageError("");
-    setUploading(true);
     const result = await uploadNoteImage(file, (image) =>
       fetch("/api/note-images", {
         method: "POST",
@@ -666,12 +681,11 @@ function NoteEditor({
         body: image,
       }),
     );
-    setUploading(false);
     if (!result.ok) {
       setImageError(result.error);
       return null;
     }
-    return result.markdown;
+    return result.url;
   }
 
   return (
@@ -702,36 +716,6 @@ function NoteEditor({
           {preview ? "只写" : "预览"}
         </button>
         {/* 粘贴/拖入之外的兜底入口：剪贴板拦截依赖浏览器行为，选文件不依赖。 */}
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-line px-3 text-sm text-fg-muted hover:bg-muted disabled:opacity-60"
-          title="也可以直接 Ctrl+V 粘贴截图，或把图片拖进编辑器"
-        >
-          <ImagePlus size={15} />
-          {uploading ? "上传中…" : "插入图片"}
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={async (event) => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-            if (!file) return;
-            const markdown = await addImage(file);
-            if (markdown) {
-              onChange({
-                ...draft,
-                contentMarkdown: `${draft.contentMarkdown.trimEnd()}
-
-${markdown}
-`,
-              });
-            }
-          }}
-        />
         {autoSavedAt ? (
           <span className="shrink-0 text-xs text-fg-subtle" title="每分钟自动保存一次">
             已自动保存 {autoSavedAt.toTimeString().slice(0, 5)}
@@ -756,15 +740,15 @@ ${markdown}
 
       {imageError ? <p className="mt-2 text-xs text-red-500">{imageError}</p> : null}
       <div className={`mt-3 grid gap-3 ${preview ? "xl:grid-cols-2" : ""}`}>
-        <MonacoNoteEditor
-          value={draft.contentMarkdown}
-          language="markdown"
-          height="80rem"
-          draftKey={DRAFT_KEY}
-          onChange={(next) => onChange({ ...draft, contentMarkdown: next })}
-          onPasteImage={addImage}
-          onEditorReady={attachEditor}
-        />
+        <div ref={editorBoxRef}>
+          <WysiwygNoteEditor
+            value={draft.contentMarkdown}
+            height="80rem"
+            draftKey={DRAFT_KEY}
+            onChange={(next) => onChange({ ...draft, contentMarkdown: next })}
+            onUploadImage={addImage}
+          />
+        </div>
         {preview ? (
           <div
             ref={previewRef}
